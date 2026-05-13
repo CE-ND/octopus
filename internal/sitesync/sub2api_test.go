@@ -113,3 +113,26 @@ func TestFetchSub2APITokensReturnsEnvelopeError(t *testing.T) {
 		t.Fatalf("expected token expired error, got %v", err)
 	}
 }
+
+func TestBuildSub2APIModelEndpointURLsIncludesAntigravityV1(t *testing.T) {
+	endpoints := buildSub2APIModelEndpointURLs(&model.Site{BaseURL: "https://example.com"})
+	for _, endpoint := range endpoints {
+		if endpoint == "https://example.com/antigravity/v1/models" {
+			return
+		}
+	}
+	t.Fatalf("expected antigravity v1 models endpoint, got %+v", endpoints)
+}
+
+func TestParseSub2APIModelNamesReturnsEnvelopeError(t *testing.T) {
+	_, err := parseSub2APIModelNames(map[string]any{
+		"code":    float64(401),
+		"message": "expired key",
+	})
+	if err == nil {
+		t.Fatalf("expected envelope error")
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "expired") {
+		t.Fatalf("expected expired key error, got %v", err)
+	}
+}

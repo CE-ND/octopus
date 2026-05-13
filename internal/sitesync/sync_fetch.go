@@ -366,7 +366,13 @@ func fetchSub2APIModelsForSiteToken(ctx context.Context, siteRecord *model.Site,
 			}
 			continue
 		}
-		models := parseSub2APIModelNames(payload)
+		models, err := parseSub2APIModelNames(payload)
+		if err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
 		if len(models) > 0 {
 			return models, nil
 		}
@@ -417,17 +423,18 @@ func buildSub2APIModelEndpointURLs(siteRecord *model.Site) []string {
 	appendCandidate(baseURL + "/v1/models")
 	appendCandidate(baseURL + "/api/v1/models")
 	appendCandidate(baseURL + "/v1beta/models")
+	appendCandidate(baseURL + "/antigravity/v1/models")
 	appendCandidate(baseURL + "/antigravity/v1beta/models")
 	appendCandidate(baseURL + "/models")
 	return candidates
 }
 
-func parseSub2APIModelNames(payload map[string]any) []string {
-	data := any(payload)
-	if unwrapped, err := unwrapSub2APIData(payload, "/models"); err == nil {
-		data = unwrapped
+func parseSub2APIModelNames(payload map[string]any) ([]string, error) {
+	data, err := unwrapSub2APIData(payload, "/models")
+	if err != nil {
+		return nil, err
 	}
-	return normalizeModelNames(collectSub2APIModelNames(data))
+	return normalizeModelNames(collectSub2APIModelNames(data)), nil
 }
 
 func collectSub2APIModelNames(value any) []string {

@@ -335,7 +335,9 @@ func parseGroupCandidate(candidate any) []model.SiteUserGroup {
 				continue
 			}
 			name := key
-			if item, ok := raw.(map[string]any); ok {
+			if value, ok := raw.(string); ok {
+				name = firstNonEmptyString(value, key)
+			} else if item, ok := raw.(map[string]any); ok {
 				name = firstNonEmptyString(jsonString(item["name"]), jsonString(item["group_name"]), jsonString(item["groupName"]), jsonString(item["title"]), jsonString(item["label"]), key)
 			}
 			items = append(items, model.SiteUserGroup{GroupKey: key, Name: name})

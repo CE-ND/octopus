@@ -193,11 +193,12 @@ func createSub2APIToken(ctx context.Context, siteRecord *model.Site, account *mo
 						account,
 					)
 					if err == nil {
-						if data, envelopeErr := unwrapSub2APIData(payload, endpoint); envelopeErr == nil && siteTokenCreateSucceededFromAny(data) {
+						data, envelopeErr := unwrapSub2APIData(payload, endpoint)
+						if envelopeErr == nil && siteTokenCreateSucceededFromAny(data) {
 							return nil
 						}
-						if siteTokenCreateSucceeded(payload) {
-							return nil
+						if envelopeErr != nil && firstErr == nil {
+							firstErr = envelopeErr
 						}
 					}
 				}
@@ -274,7 +275,8 @@ func siteTokenCreateSucceeded(payload map[string]any) bool {
 func siteTokenCreateSucceededFromAny(value any) bool {
 	payload, ok := value.(map[string]any)
 	if !ok {
-		return value != nil
+		succeeded, ok := value.(bool)
+		return ok && succeeded
 	}
 	if raw, ok := payload["success"]; ok {
 		switch typed := raw.(type) {
