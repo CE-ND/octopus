@@ -349,6 +349,46 @@ func IsMaskedSiteTokenValue(value string) bool {
 	return strings.Contains(trimmed, "*") || strings.Contains(trimmed, "•")
 }
 
+// SiteMaskedTokenMatches reports whether fullToken can plausibly produce
+// maskedToken under the upstream masking scheme. Both sides are normalised so
+// that an optional "sk-" prefix on either value does not break the comparison.
+func SiteMaskedTokenMatches(fullToken string, maskedToken string) bool {
+	normalizedFull := NormalizeComparableSiteTokenValue(fullToken)
+	normalizedMasked := NormalizeComparableSiteTokenValue(maskedToken)
+	if normalizedFull == "" || normalizedMasked == "" {
+		return false
+	}
+	if !IsMaskedSiteTokenValue(normalizedMasked) {
+		return normalizedFull == normalizedMasked
+	}
+	firstMask := strings.IndexAny(normalizedMasked, "*•")
+	if firstMask < 0 {
+		return normalizedFull == normalizedMasked
+	}
+	lastMask := strings.LastIndexAny(normalizedMasked, "*•")
+	if lastMask < firstMask {
+		return normalizedFull == normalizedMasked
+	}
+	maskedRunes := []rune(normalizedMasked)
+	runeFirst := len([]rune(normalizedMasked[:firstMask]))
+	runeLast := len([]rune(normalizedMasked[:lastMask])) + 1
+	prefix := string(maskedRunes[:runeFirst])
+	suffix := string(maskedRunes[runeLast:])
+	if prefix == "" && suffix == "" {
+		return false
+	}
+	if len(normalizedFull) < len(prefix)+len(suffix)+1 {
+		return false
+	}
+	if prefix != "" && !strings.HasPrefix(normalizedFull, prefix) {
+		return false
+	}
+	if suffix != "" && !strings.HasSuffix(normalizedFull, suffix) {
+		return false
+	}
+	return true
+}
+
 func NormalizeSiteTokenValueStatus(value SiteTokenValueStatus, token string) SiteTokenValueStatus {
 	if IsMaskedSiteTokenValue(token) {
 		return SiteTokenValueStatusMaskedPending
