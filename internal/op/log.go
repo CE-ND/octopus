@@ -423,6 +423,15 @@ type RelayLogCursor struct {
 	ID   int64 `json:"id"`
 }
 
+type RelayLogKeywordMode string
+
+const (
+	RelayLogKeywordModeDefault  RelayLogKeywordMode = ""
+	RelayLogKeywordModePrefix   RelayLogKeywordMode = "prefix"
+	RelayLogKeywordModeExact    RelayLogKeywordMode = "exact"
+	RelayLogKeywordModeContains RelayLogKeywordMode = "contains"
+)
+
 type RelayLogListFilter struct {
 	StartTime      *int
 	EndTime        *int
@@ -430,6 +439,7 @@ type RelayLogListFilter struct {
 	Status         RelayLogStatusFilter
 	Keyword        string
 	KeywordScope   RelayLogKeywordScope
+	KeywordMode    RelayLogKeywordMode
 	Page           int
 	PageSize       int
 	IncludeContent bool
@@ -437,6 +447,9 @@ type RelayLogListFilter struct {
 	Limit          int
 	BeforeTime     *int64
 	BeforeID       *int64
+	// Pagination forces cursor or page mode. Empty defers to cursor when
+	// limit/cursor fields are set, otherwise page mode.
+	Pagination string
 }
 
 type RelayLogListResult struct {
@@ -444,7 +457,30 @@ type RelayLogListResult struct {
 	Total      int              `json:"total"`
 	HasMore    bool             `json:"has_more"`
 	NextCursor *RelayLogCursor  `json:"next_cursor,omitempty"`
+	SearchMode string           `json:"search_mode,omitempty"`
+	Warning    string           `json:"warning,omitempty"`
 }
+
+const (
+	relayLogKeywordContainsMinLen     = 3
+	relayLogKeywordContainsMaxWindow  = int64(7 * 24 * 60 * 60)
+	relayLogKeywordContainsDefaultWin = int64(24 * 60 * 60)
+)
+
+// ErrRelayLogContainsKeywordTooShort signals that a contains-mode keyword does
+// not meet the minimum length requirement enforced by the backend.
+var (
+	ErrRelayLogContainsKeywordTooShort = &RelayLogFilterError{Code: "keyword_too_short", Message: "contains search requires keyword of at least 3 characters"}
+	ErrRelayLogContainsWindowMissing   = &RelayLogFilterError{Code: "time_window_required", Message: "contains search requires an explicit time range"}
+	ErrRelayLogContainsWindowTooWide   = &RelayLogFilterError{Code: "time_window_too_wide", Message: "contains search time window must be at most 7 days"}
+)
+
+type RelayLogFilterError struct {
+	Code    string
+	Message string
+}
+
+func (e *RelayLogFilterError) Error() string { return e.Message }
 
 // RelayLogList 查询日志列表，支持可选的时间范围和渠道ID过滤
 // startTime 和 endTime 为 nil 时表示不限制时间范围
@@ -470,6 +506,12 @@ func RelayLogListWithFilter(ctx context.Context, filter RelayLogListFilter) (Rel
 	}
 
 	cursorMode := filter.BeforeTime != nil || filter.BeforeID != nil || filter.Limit > 0
+	switch filter.Pagination {
+	case "cursor":
+		cursorMode = true
+	case "page":
+		cursorMode = false
+	}
 	if filter.Limit < 0 || filter.Limit > 100 {
 		filter.Limit = 20
 	}
@@ -488,6 +530,14 @@ func RelayLogListWithFilter(ctx context.Context, filter RelayLogListFilter) (Rel
 	}
 	filter.Keyword = strings.TrimSpace(filter.Keyword)
 
+	// Resolve effective keyword mode and apply guardrails for slow contains
+	// search before any DB work.
+	resolvedMode, warning, err := resolveRelayLogKeywordMode(&filter)
+	if err != nil {
+		return RelayLogListResult{}, err
+	}
+	filter.KeywordMode = resolvedMode
+
 	hasChannelFilter := len(filter.ChannelIDs) > 0
 	var channelSet map[int]struct{}
 	if hasChannelFilter {
@@ -505,7 +555,13 @@ func RelayLogListWithFilter(ctx context.Context, filter RelayLogListFilter) (Rel
 	offset := (filter.Page - 1) * filter.PageSize
 
 	if cursorMode {
-		return relayLogListCursor(ctx, filter, cachedLogs, enabled)
+		result, err := relayLogListCursor(ctx, filter, cachedLogs, enabled)
+		if err != nil {
+			return RelayLogListResult{}, err
+		}
+		result.SearchMode = relayLogSearchMode(filter)
+		result.Warning = warning
+		return result, nil
 	}
 
 	var logs []model.RelayLog
@@ -554,7 +610,7 @@ func RelayLogListWithFilter(ctx context.Context, filter RelayLogListFilter) (Rel
 		}
 	}
 
-	return RelayLogListResult{Logs: logs, Total: total}, nil
+	return RelayLogListResult{Logs: logs, Total: total, SearchMode: relayLogSearchMode(filter), Warning: warning}, nil
 }
 
 func relayLogListCursor(ctx context.Context, filter RelayLogListFilter, cachedLogs []model.RelayLog, enabled bool) (RelayLogListResult, error) {
@@ -780,7 +836,7 @@ func relayLogMatchesFilter(relayLog model.RelayLog, filter RelayLogListFilter, c
 	if filter.Status == RelayLogStatusError && relayLog.Success {
 		return false
 	}
-	if keyword != "" && !logMatchesKeyword(relayLog, keyword, filter.KeywordScope) {
+	if keyword != "" && !logMatchesKeyword(relayLog, keyword, filter.KeywordScope, filter.KeywordMode) {
 		return false
 	}
 	return true
@@ -802,21 +858,50 @@ func applyRelayLogDBFilters(query *gorm.DB, filter RelayLogListFilter) *gorm.DB 
 		query = query.Where("success = ?", false)
 	}
 	keyword := strings.ToLower(strings.TrimSpace(filter.Keyword))
-	if keyword != "" {
-		like := "%" + keyword + "%"
+	if keyword == "" {
+		return query
+	}
+	switch filter.KeywordMode {
+	case RelayLogKeywordModeExact:
+		query = query.Where(
+			"LOWER(request_model_name) = ? OR LOWER(actual_model_name) = ? OR LOWER(request_api_key_name) = ? OR LOWER(channel_name) = ?",
+			keyword, keyword, keyword, keyword,
+		)
+	case RelayLogKeywordModeContains:
+		escaped := escapeLikeKeyword(keyword)
+		like := "%" + escaped + "%"
 		if filter.KeywordScope == RelayLogKeywordScopeContent {
 			query = query.Where(
-				"LOWER(request_model_name) LIKE ? OR LOWER(actual_model_name) LIKE ? OR LOWER(request_api_key_name) LIKE ? OR LOWER(channel_name) LIKE ? OR LOWER(request_content) LIKE ? OR LOWER(response_content) LIKE ? OR LOWER(error) LIKE ?",
+				"LOWER(request_model_name) LIKE ? ESCAPE '#' OR LOWER(actual_model_name) LIKE ? ESCAPE '#' OR LOWER(request_api_key_name) LIKE ? ESCAPE '#' OR LOWER(channel_name) LIKE ? ESCAPE '#' OR LOWER(request_content) LIKE ? ESCAPE '#' OR LOWER(response_content) LIKE ? ESCAPE '#' OR LOWER(error) LIKE ? ESCAPE '#'",
 				like, like, like, like, like, like, like,
 			)
 		} else {
 			query = query.Where(
-				"LOWER(request_model_name) LIKE ? OR LOWER(actual_model_name) LIKE ? OR LOWER(request_api_key_name) LIKE ? OR LOWER(channel_name) LIKE ? OR LOWER(error) LIKE ?",
+				"LOWER(request_model_name) LIKE ? ESCAPE '#' OR LOWER(actual_model_name) LIKE ? ESCAPE '#' OR LOWER(request_api_key_name) LIKE ? ESCAPE '#' OR LOWER(channel_name) LIKE ? ESCAPE '#' OR LOWER(error) LIKE ? ESCAPE '#'",
 				like, like, like, like, like,
 			)
 		}
+	default:
+		// prefix is the default fast path: anchored LIKE 'kw%' can leverage
+		// indexes where available, and avoids the worst leading-wildcard scans.
+		like := escapeLikeKeyword(keyword) + "%"
+		query = query.Where(
+			"LOWER(request_model_name) LIKE ? ESCAPE '#' OR LOWER(actual_model_name) LIKE ? ESCAPE '#' OR LOWER(request_api_key_name) LIKE ? ESCAPE '#' OR LOWER(channel_name) LIKE ? ESCAPE '#'",
+			like, like, like, like,
+		)
 	}
 	return query
+}
+
+// escapeLikeKeyword escapes SQL LIKE wildcards (and the escape char itself) so
+// callers can match user input literally. Pair with `ESCAPE '#'` in the LIKE
+// clause. A non-special ASCII char is used so the same SQL parses identically
+// across SQLite, MySQL, and PostgreSQL string literals.
+func escapeLikeKeyword(s string) string {
+	s = strings.ReplaceAll(s, "#", "##")
+	s = strings.ReplaceAll(s, "%", "#%")
+	s = strings.ReplaceAll(s, "_", "#_")
+	return s
 }
 
 // logMatchesChannels 检查日志是否属于指定的渠道集合。
@@ -827,23 +912,105 @@ func logMatchesChannels(log model.RelayLog, channelSet map[int]struct{}) bool {
 	return ok
 }
 
-func logMatchesKeyword(relayLog model.RelayLog, keyword string, scope RelayLogKeywordScope) bool {
+func logMatchesKeyword(relayLog model.RelayLog, keyword string, scope RelayLogKeywordScope, mode RelayLogKeywordMode) bool {
 	fields := []string{
 		relayLog.RequestModelName,
 		relayLog.ActualModelName,
 		relayLog.RequestAPIKeyName,
 		relayLog.ChannelName,
-		relayLog.Error,
 	}
-	if scope == RelayLogKeywordScopeContent {
-		fields = append(fields, relayLog.RequestContent, relayLog.ResponseContent)
+	if mode == RelayLogKeywordModeContains {
+		fields = append(fields, relayLog.Error)
+		if scope == RelayLogKeywordScopeContent {
+			fields = append(fields, relayLog.RequestContent, relayLog.ResponseContent)
+		}
 	}
 	for _, field := range fields {
-		if strings.Contains(strings.ToLower(field), keyword) {
-			return true
+		lower := strings.ToLower(field)
+		switch mode {
+		case RelayLogKeywordModeExact:
+			if lower == keyword {
+				return true
+			}
+		case RelayLogKeywordModeContains:
+			if strings.Contains(lower, keyword) {
+				return true
+			}
+		default:
+			if strings.HasPrefix(lower, keyword) {
+				return true
+			}
 		}
 	}
 	return false
+}
+
+// resolveRelayLogKeywordMode validates contains-mode constraints and returns
+// the effective mode. Empty keyword always resolves to prefix to keep behavior
+// stable for callers that don't care about mode.
+func resolveRelayLogKeywordMode(filter *RelayLogListFilter) (RelayLogKeywordMode, string, error) {
+	if filter.Keyword == "" {
+		return RelayLogKeywordModeDefault, "", nil
+	}
+	mode := filter.KeywordMode
+	if filter.KeywordScope == RelayLogKeywordScopeContent {
+		// Content scope only makes sense with contains semantics.
+		mode = RelayLogKeywordModeContains
+	}
+	switch mode {
+	case RelayLogKeywordModePrefix, RelayLogKeywordModeExact, RelayLogKeywordModeDefault:
+		if mode == RelayLogKeywordModeDefault {
+			mode = RelayLogKeywordModePrefix
+		}
+		return mode, "", nil
+	case RelayLogKeywordModeContains:
+		if len([]rune(filter.Keyword)) < relayLogKeywordContainsMinLen {
+			return mode, "", ErrRelayLogContainsKeywordTooShort
+		}
+		now := time.Now().Unix()
+		warning := ""
+		if filter.StartTime == nil && filter.EndTime == nil {
+			// Apply a default 24h window rather than reject outright; surface
+			// a warning so the UI can show it.
+			start := int(now - relayLogKeywordContainsDefaultWin)
+			filter.StartTime = &start
+			warning = "applied default 24h time window for contains search"
+		} else {
+			end := now
+			if filter.EndTime != nil {
+				end = int64(*filter.EndTime)
+			}
+			var start int64
+			if filter.StartTime != nil {
+				start = int64(*filter.StartTime)
+			} else {
+				// EndTime set but StartTime not: anchor the window to EndTime
+				// so end-only queries stay within the contains-search budget.
+				start = end - relayLogKeywordContainsMaxWindow
+				if start < 0 {
+					start = 0
+				}
+				startInt := int(start)
+				filter.StartTime = &startInt
+			}
+			if end-start > relayLogKeywordContainsMaxWindow {
+				return mode, "", ErrRelayLogContainsWindowTooWide
+			}
+		}
+		return mode, warning, nil
+	default:
+		return RelayLogKeywordModePrefix, "", nil
+	}
+}
+
+func relayLogSearchMode(filter RelayLogListFilter) string {
+	if filter.Keyword == "" {
+		return ""
+	}
+	if filter.KeywordMode == RelayLogKeywordModeContains {
+		return "slow"
+	}
+	return "fast"
 }
 
 func RelayLogClear(ctx context.Context) error {

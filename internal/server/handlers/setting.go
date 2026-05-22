@@ -108,6 +108,30 @@ func setSetting(c *gin.Context) {
 func exportDB(c *gin.Context) {
 	includeLogs, _ := strconv.ParseBool(c.DefaultQuery("include_logs", "false"))
 	includeStats, _ := strconv.ParseBool(c.DefaultQuery("include_stats", "false"))
+	format := strings.ToLower(strings.TrimSpace(c.DefaultQuery("format", "json")))
+	if format != "json" && format != "zip" {
+		resp.Error(c, http.StatusBadRequest, "invalid format")
+		return
+	}
+
+	if format == "zip" {
+		filename := "octopus-export-" + time.Now().Format("20060102150405") + ".zip"
+		c.Header("Content-Type", "application/zip")
+		c.Header("Content-Disposition", "attachment; filename=\""+filename+"\"")
+		wrapper := &countingResponseWriter{ResponseWriter: c.Writer}
+		if err := op.DBExportZip(c.Request.Context(), wrapper, includeLogs, includeStats); err != nil {
+			if wrapper.bytesWritten == 0 {
+				c.Header("Content-Type", "application/json")
+				c.Header("Content-Disposition", "")
+				c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"code": http.StatusInternalServerError, "message": err.Error()})
+				return
+			}
+			// Headers already sent; we can't switch to a JSON error. Log it and
+			// let the client surface the truncated download.
+			log.Warnf("zip export failed mid-stream: %v", err)
+		}
+		return
+	}
 
 	dump, err := op.DBExportAll(c.Request.Context(), includeLogs, includeStats)
 	if err != nil {
@@ -210,4 +234,24 @@ func decodeDBDump(body []byte, dump *model.DBDump) error {
 	}
 
 	return nil
+}
+
+// countingResponseWriter wraps gin.ResponseWriter to track whether the body
+// has started, so callers can choose to emit a JSON error if the underlying
+// stream failed before any bytes were committed.
+type countingResponseWriter struct {
+	gin.ResponseWriter
+	bytesWritten int64
+}
+
+func (w *countingResponseWriter) Write(b []byte) (int, error) {
+	n, err := w.ResponseWriter.Write(b)
+	w.bytesWritten += int64(n)
+	return n, err
+}
+
+func (w *countingResponseWriter) WriteString(s string) (int, error) {
+	n, err := w.ResponseWriter.WriteString(s)
+	w.bytesWritten += int64(n)
+	return n, err
 }
