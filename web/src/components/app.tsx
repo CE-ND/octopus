@@ -11,7 +11,7 @@ import { NavBar, useNavStore } from '@/components/modules/navbar';
 import { useTranslations } from 'next-intl'
 import Logo, { LOGO_DRAW_END_MS } from '@/components/modules/logo';
 import { Toolbar } from '@/components/modules/toolbar';
-import { ChannelTabSwitcher, ChannelHeaderActions } from '@/components/modules/channel/TabSwitcher';
+import { ChannelTabSwitcher } from '@/components/modules/channel/TabSwitcher';
 import { ProxyPoolDialog } from '@/components/modules/proxy-pool/ProxyPoolDialog';
 import { ENTRANCE_VARIANTS } from '@/lib/animations/fluid-transitions';
 import { useQueryClient } from '@tanstack/react-query';
@@ -209,9 +209,9 @@ export function AppContainer() {
         >
             <NavBar />
             <main className="flex min-h-0 w-full min-w-0 flex-1 flex-col">
-                <header className="my-6 flex flex-none items-center gap-x-2 px-2">
+                <header className="my-6 flex flex-none items-start gap-x-2 px-2">
                     <Logo size={48} />
-                    <div className="flex-1 overflow-hidden">
+                    <div className="flex-1 overflow-hidden pb-2 sm:pb-0">
                         <AnimatePresence mode="wait" custom={direction}>
                             <motion.div
                                 key={activeItem}
@@ -234,15 +234,14 @@ export function AppContainer() {
                                 animate="animate"
                                 exit="exit"
                                 transition={{ duration: 0.3 }}
-                                className="flex items-baseline gap-6"
+                                className="flex flex-col sm:flex-row sm:items-baseline gap-2 sm:gap-6"
                             >
                                 <span className="text-3xl font-bold mt-1">{t(activeItem)}</span>
                                 {activeItem === 'channel' && <ChannelTabSwitcher />}
                             </motion.div>
                         </AnimatePresence>
                     </div>
-                    <div className="ml-auto flex items-center gap-3">
-                        {activeItem === 'channel' && <ChannelHeaderActions />}
+                    <div className="ml-auto flex items-center gap-3 relative min-h-[36px]">
                         <Toolbar />
                     </div>
                     <ProxyPoolDialog />

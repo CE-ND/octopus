@@ -54,15 +54,40 @@ function useMorphingDialog() {
 export type MorphingDialogProviderProps = {
   children: React.ReactNode;
   transition?: Transition;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 };
 
 function MorphingDialogProvider({
   children,
   transition,
+  open: controlledOpen,
+  onOpenChange,
 }: MorphingDialogProviderProps) {
-  const [isOpen, setIsOpen] = useState(false);
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
+  const isControlled = controlledOpen !== undefined;
+  const isOpen = isControlled ? (controlledOpen as boolean) : uncontrolledOpen;
   const uniqueId = useId();
   const triggerRef = useRef<HTMLDivElement>(null!);
+
+  const setIsOpen = useCallback<React.Dispatch<React.SetStateAction<boolean>>>(
+    (value) => {
+      // 非受控：直接交给 setUncontrolledOpen，由 React 基于最新 state 计算，
+      // 避免 useCallback 闭包捕获到陈旧的 uncontrolledOpen
+      if (!isControlled) {
+        setUncontrolledOpen(value);
+        return;
+      }
+      // 受控：基于 controlledOpen 计算下一个值并通知外部
+      const current = controlledOpen as boolean;
+      const next =
+        typeof value === 'function'
+          ? (value as (prev: boolean) => boolean)(current)
+          : value;
+      if (next !== current) onOpenChange?.(next);
+    },
+    [isControlled, controlledOpen, onOpenChange]
+  );
 
   const contextValue = useMemo(
     () => ({
@@ -71,7 +96,7 @@ function MorphingDialogProvider({
       uniqueId,
       triggerRef,
     }),
-    [isOpen, uniqueId]
+    [isOpen, setIsOpen, uniqueId]
   );
 
   return (
@@ -84,11 +109,13 @@ function MorphingDialogProvider({
 export type MorphingDialogProps = {
   children: React.ReactNode;
   transition?: Transition;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 };
 
-function MorphingDialog({ children, transition }: MorphingDialogProps) {
+function MorphingDialog({ children, transition, open, onOpenChange }: MorphingDialogProps) {
   return (
-    <MorphingDialogProvider transition={transition}>
+    <MorphingDialogProvider transition={transition} open={open} onOpenChange={onOpenChange}>
       {children}
     </MorphingDialogProvider>
   );

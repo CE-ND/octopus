@@ -7,6 +7,7 @@ import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import 'dayjs/locale/zh-cn';
 import 'dayjs/locale/zh-tw';
+import { useCompletionStore } from './completion-store';
 import {
     ArrowUpDown,
     Check,
@@ -3124,6 +3125,23 @@ export function SiteChannelCompletionAction() {
     );
 }
 
+// 新增：用于在 SiteChannelSection 中同步状态到 store
+export function useCompletionStateSync() {
+    const { data } = useSiteChannelList();
+
+    const pendingCompletionSites = useMemo(
+        () => collectPendingCompletionSites(data ?? []),
+        [data],
+    );
+
+    const totalPendingCompletionCount = useMemo(
+        () => pendingCompletionSites.reduce((sum, site) => sum + site.pending_count, 0),
+        [pendingCompletionSites],
+    );
+
+    return { pendingCompletionSites, totalPendingCompletionCount };
+}
+
 export function SiteChannelSection({
     searchTerm,
     sortField,
@@ -3143,6 +3161,20 @@ export function SiteChannelSection({
     const requestJump = useJumpStore((state) => state.requestJump);
     const [highlightedSiteId, setHighlightedSiteId] = useState<number | null>(null);
     const siteCardRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+
+    // 同步补全状态到 store，并暴露对话框控制
+    const { pendingCompletionSites, totalPendingCompletionCount } = useCompletionStateSync();
+    const setPendingCount = useCompletionStore((s) => s.setPendingCount);
+    const completionDialogOpen = useCompletionStore((s) => s.dialogOpen);
+    const setCompletionDialogOpen = useCompletionStore((s) => s.setDialogOpen);
+
+    useEffect(() => {
+        setPendingCount(totalPendingCompletionCount);
+        // 待补全清零时主动关闭对话框，避免残留的 open 状态在新任务到来时自动重开
+        if (totalPendingCompletionCount === 0) {
+            setCompletionDialogOpen(false);
+        }
+    }, [totalPendingCompletionCount, setPendingCount, setCompletionDialogOpen]);
 
     const pendingSiteChannelJump = pendingJump && isSiteChannelJumpTarget(pendingJump.target)
         ? pendingJump as SiteChannelPendingJump
@@ -3224,19 +3256,26 @@ export function SiteChannelSection({
         );
     }
 
-    if (cards.length === 0) {
-        return null;
-    }
-
-    return <SiteChannelGrid
-        cards={cards}
-        layout={layout}
-        pendingSiteChannelJump={pendingSiteChannelJump}
-        highlightedSiteId={highlightedSiteId}
-        registerCardRef={registerCardRef}
-        clearPending={clearPending}
-        requestJump={requestJump}
-    />;
+    return (
+        <>
+            {cards.length > 0 && (
+                <SiteChannelGrid
+                    cards={cards}
+                    layout={layout}
+                    pendingSiteChannelJump={pendingSiteChannelJump}
+                    highlightedSiteId={highlightedSiteId}
+                    registerCardRef={registerCardRef}
+                    clearPending={clearPending}
+                    requestJump={requestJump}
+                />
+            )}
+            <UnifiedCompletionDialog
+                open={completionDialogOpen && totalPendingCompletionCount > 0}
+                onOpenChange={setCompletionDialogOpen}
+                sites={pendingCompletionSites}
+            />
+        </>
+    );
 }
 
 function SiteChannelGrid({
