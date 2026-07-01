@@ -13,6 +13,17 @@
 > Forked from [bestruirui/octopus](https://github.com/bestruirui/octopus) — see [Differences from Upstream](#-differences-from-upstream) for what this fork changes.
 
 
+## What Octopus Does
+
+Octopus is a self-hosted LLM API gateway for personal and small-team use. It gives you one local API endpoint and one management panel for connecting multiple upstream model providers, then handles routing, protocol conversion, failover, load balancing, API keys, pricing, usage analytics, and relay logs.
+
+The project is made of three layers:
+
+- **Go backend**: Gin + GORM service for admin APIs, OpenAI-compatible relay endpoints, caching, statistics, and background sync tasks.
+- **Next.js admin UI**: a static-exported management panel embedded into the Go binary for simple deployment.
+- **Optional Electron desktop app**: starts the local Go backend, opens the admin UI in a desktop window, and stores desktop data in the user's app data directory.
+
+
 ## ✨ Features
 
 - 🔀 **Multi-Channel Aggregation** - Connect multiple LLM provider channels with unified management
@@ -42,14 +53,14 @@ docker run -d --name octopus -v /path/to/data:/app/data -p 8080:8080 hureru/octo
 Or use docker compose:
 
 ```bash
-wget https://raw.githubusercontent.com/Hureru/octopus/refs/heads/dev/docker-compose.yml
+wget https://raw.githubusercontent.com/CE-ND/octopus/refs/heads/dev/docker-compose.yml
 docker compose up -d
 ```
 
 
 ### 📦 Download from Release
 
-Download the binary for your platform from [Releases](https://github.com/Hureru/octopus/releases), then run:
+Download the binary for your platform from [Releases](https://github.com/CE-ND/octopus/releases), then run:
 
 ```bash
 ./octopus start
@@ -64,7 +75,7 @@ Download the binary for your platform from [Releases](https://github.com/Hureru/
 
 ```bash
 # Clone the repository
-git clone https://github.com/Hureru/octopus.git
+git clone https://github.com/CE-ND/octopus.git
 cd octopus
 # Build frontend
 cd web && pnpm install && pnpm run build && cd ..
@@ -85,6 +96,23 @@ go run main.go start
 ## Access the frontend at
 http://localhost:3000
 ```
+
+### 🖥️ Desktop App
+
+Octopus can also be packaged as an Electron desktop app. The desktop app starts the bundled Go backend on `127.0.0.1`, waits for a local health check, and then opens the embedded admin UI.
+
+```bash
+pnpm install
+pnpm desktop:dev
+```
+
+Build a desktop installer/package:
+
+```bash
+pnpm desktop:dist
+```
+
+See [DESKTOP.md](DESKTOP.md) for packaging details, data directory behavior, and useful environment variables.
 
 ### 🔐 Default Credentials
 
@@ -411,4 +439,3 @@ Compatible with [bestruirui/octopus](https://github.com/bestruirui/octopus), ~18
 ## 🔗 Friend Links
 
 - 🐧 [LinuxDO](https://linux.do) - A community for tech enthusiasts
-

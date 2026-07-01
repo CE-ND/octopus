@@ -13,6 +13,17 @@
 > 本项目 Fork 自 [bestruirui/octopus](https://github.com/bestruirui/octopus)，与上游的差异见 [与上游的差异](#-与上游的差异)。
 
 
+## 项目定位
+
+Octopus 是一个面向个人和小团队的自托管 LLM API 网关。它把多个上游模型供应商接入到一个本地 API 入口，并提供统一的管理面板，用来处理渠道管理、协议转换、故障切换、负载均衡、API Key、模型价格、用量统计和请求日志。
+
+项目由三层组成：
+
+- **Go 后端**：基于 Gin + GORM，负责管理接口、OpenAI 兼容代理接口、缓存、统计和后台同步任务。
+- **Next.js 管理面板**：静态导出后嵌入 Go 二进制，便于单文件部署。
+- **可选 Electron 桌面端**：启动本地 Go 后端，在桌面窗口中打开管理面板，并把桌面端数据放在系统应用数据目录。
+
+
 ## ✨ 特性
 
 - 🔀 **多渠道聚合** - 支持接入多个 LLM 供应商渠道，统一管理
@@ -42,14 +53,14 @@ docker run -d --name octopus -v /path/to/data:/app/data -p 8080:8080 hureru/octo
 或者使用 docker compose 运行
 
 ```bash
-wget https://raw.githubusercontent.com/Hureru/octopus/refs/heads/dev/docker-compose.yml
+wget https://raw.githubusercontent.com/CE-ND/octopus/refs/heads/dev/docker-compose.yml
 docker compose up -d
 ```
 
 
 ### 📦 从 Release 下载
 
-从 [Releases](https://github.com/Hureru/octopus/releases) 下载对应平台的二进制文件，然后运行：
+从 [Releases](https://github.com/CE-ND/octopus/releases) 下载对应平台的二进制文件，然后运行：
 
 ```bash
 ./octopus start
@@ -64,7 +75,7 @@ docker compose up -d
 
 ```bash
 # 克隆项目
-git clone https://github.com/Hureru/octopus.git
+git clone https://github.com/CE-ND/octopus.git
 cd octopus
 # 构建前端
 cd web && pnpm install && pnpm run build && cd ..
@@ -85,6 +96,23 @@ go run main.go start
 ## 访问前端地址
 http://localhost:3000
 ```
+
+### 🖥️ 桌面端应用
+
+Octopus 也可以打包为 Electron 桌面端。桌面端会在 `127.0.0.1` 启动内置 Go 后端，等待本地健康检查通过后，再在桌面窗口中打开嵌入的管理面板。
+
+```bash
+pnpm install
+pnpm desktop:dev
+```
+
+构建桌面安装包：
+
+```bash
+pnpm desktop:dist
+```
+
+更多打包流程、数据目录和环境变量说明见 [DESKTOP.md](DESKTOP.md)。
 
 ### 🔐 默认账户
 

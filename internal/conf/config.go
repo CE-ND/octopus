@@ -3,6 +3,7 @@ package conf
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -75,10 +76,14 @@ func Load(path string) error {
 	} else {
 		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
 			log.Infof("Config file not found, creating default config")
-			if err := os.MkdirAll("data", 0755); err != nil {
+			configPath := "data/config.json"
+			if path != "" {
+				configPath = path
+			}
+			if err := os.MkdirAll(filepath.Dir(configPath), 0755); err != nil {
 				log.Errorf("Failed to create data directory: %v", err)
 			}
-			if err := viper.SafeWriteConfigAs("data/config.json"); err != nil {
+			if err := viper.SafeWriteConfigAs(configPath); err != nil {
 				log.Errorf("Failed to create default config: %v", err)
 			}
 		} else {

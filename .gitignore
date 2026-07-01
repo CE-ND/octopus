@@ -1,5 +1,7 @@
 data
 build
+dist
+node_modules
 static/out/
 .vscode
 .claude/
