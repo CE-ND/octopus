@@ -1,6 +1,7 @@
 package conf
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -65,7 +66,6 @@ func Load(path string) error {
 		viper.AddConfigPath("data")
 	}
 
-	viper.AutomaticEnv()
 	viper.SetEnvPrefix(APP_NAME)
 	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 
@@ -74,7 +74,7 @@ func Load(path string) error {
 	if err := viper.ReadInConfig(); err == nil {
 		log.Infof("Using config file: %s", viper.ConfigFileUsed())
 	} else {
-		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
+		if isConfigFileNotFound(err) {
 			log.Infof("Config file not found, creating default config")
 			configPath := "data/config.json"
 			if path != "" {
@@ -91,10 +91,16 @@ func Load(path string) error {
 		}
 	}
 
+	viper.AutomaticEnv()
 	if err := viper.Unmarshal(&AppConfig); err != nil {
 		return fmt.Errorf("unable to decode config into struct: %w", err)
 	}
 	return nil
+}
+
+func isConfigFileNotFound(err error) bool {
+	var notFound viper.ConfigFileNotFoundError
+	return errors.As(err, &notFound) || os.IsNotExist(err)
 }
 
 func setDefaults() {

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"time"
 
@@ -30,7 +31,10 @@ var startCmd = &cobra.Command{
 	Short: "Start " + conf.APP_NAME,
 	PreRun: func(cmd *cobra.Command, args []string) {
 		conf.PrintBanner()
-		conf.Load(cfgFile)
+		if err := conf.Load(cfgFile); err != nil {
+			fmt.Fprintf(os.Stderr, "config load error: %v\n", err)
+			os.Exit(1)
+		}
 		log.Configure(log.Config{
 			Level:           conf.AppConfig.Log.Level,
 			Format:          conf.AppConfig.Log.Format,
