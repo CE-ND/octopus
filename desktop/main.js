@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const net = require('net');
 const crypto = require('crypto');
+const os = require('os');
 
 let backendProcess = null;
 let backendBaseUrl = null;
@@ -103,8 +104,34 @@ function readExistingPort(configPath) {
   return null;
 }
 
+function directoryHasEntries(dir) {
+  try {
+    return fs.existsSync(dir) && fs.readdirSync(dir).length > 0;
+  } catch (_) {
+    return false;
+  }
+}
+
+function migrateLegacyUserData(root) {
+  const legacyRoot = path.join(app.getPath('userData'), 'octopus');
+  if (path.resolve(legacyRoot) === path.resolve(root)) return;
+  if (!directoryHasEntries(legacyRoot) || directoryHasEntries(root)) return;
+
+  if (fs.existsSync(root)) {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+
+  fs.mkdirSync(path.dirname(root), { recursive: true });
+  try {
+    fs.renameSync(legacyRoot, root);
+  } catch (_) {
+    fs.cpSync(legacyRoot, root, { recursive: true });
+  }
+}
+
 function getUserDataPaths() {
-  const root = path.join(app.getPath('userData'), 'octopus');
+  const root = process.env.OCTOPUS_DESKTOP_DATA_DIR || path.join(os.homedir(), '.octopus');
+  migrateLegacyUserData(root);
   return {
     root,
     dataDir: path.join(root, 'data'),

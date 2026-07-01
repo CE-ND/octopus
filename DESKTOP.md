@@ -51,6 +51,14 @@ Artifacts are written to `dist/desktop`.
   the normal backend configuration name.
 - `OCTOPUS_DESKTOP_SKIP_FRONTEND=1`: reuse an existing `web/out` build.
 - `OCTOPUS_DESKTOP_SKIP_INSTALL=1`: skip `pnpm install` inside `web`.
+- `OCTOPUS_DESKTOP_DATA_DIR=C:\\path\\to\\data`: override the desktop data
+  directory.
 
-Desktop data is stored under Electron's user data directory, not in the
-installation directory.
+Desktop data is stored under the user's home directory, not in the installation
+directory:
+
+```text
+%USERPROFILE%\.octopus\data\config.json
+%USERPROFILE%\.octopus\data\data.db
+%USERPROFILE%\.octopus\logs\backend.log
+```
