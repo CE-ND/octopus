@@ -15,13 +15,37 @@ const args = new Set(process.argv.slice(2));
 const skipFrontend = args.has('--skip-frontend') || process.env.OCTOPUS_DESKTOP_SKIP_FRONTEND === '1';
 const skipInstall = args.has('--skip-install') || process.env.OCTOPUS_DESKTOP_SKIP_INSTALL === '1';
 
+function resolveCommand(command) {
+  if (!isWindows || command !== 'go') {
+    return command;
+  }
+
+  const candidates = [
+    process.env.GOROOT ? path.join(process.env.GOROOT, 'bin', 'go.exe') : null,
+    'D:\\GO\\bin\\go.exe',
+    path.join(process.env.ProgramFiles || 'C:\\Program Files', 'Go', 'bin', 'go.exe'),
+    path.join(process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)', 'Go', 'bin', 'go.exe'),
+    'C:\\Go\\bin\\go.exe',
+  ].filter(Boolean);
+
+  return candidates.find((candidate) => fs.existsSync(candidate)) || command;
+}
+
 function run(command, commandArgs, options = {}) {
   const display = [command, ...commandArgs].join(' ');
   const useShell = isWindows && command === 'pnpm';
+  const executable = resolveCommand(command);
+  const env = { ...process.env, ...(options.env || {}) };
+
+  if (command === 'go' && executable !== command) {
+    const goBin = path.dirname(executable);
+    env.Path = `${goBin};${env.Path || env.PATH || ''}`;
+  }
+
   console.log(`> ${display}`);
-  const result = spawnSync(command, commandArgs, {
+  const result = spawnSync(executable, commandArgs, {
     cwd: options.cwd || rootDir,
-    env: { ...process.env, ...(options.env || {}) },
+    env,
     stdio: options.capture ? 'pipe' : 'inherit',
     shell: useShell,
     encoding: 'utf8',
