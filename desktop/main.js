@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog } = require('electron');
+const { app, BrowserWindow, dialog, nativeImage } = require('electron');
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
@@ -14,13 +14,24 @@ let shuttingDown = false;
 let stopBackendPromise = null;
 
 const isWindows = process.platform === 'win32';
+const appId = 'com.hureru.octopus.desktop';
 const backendBinaryName = isWindows ? 'octopus.exe' : 'octopus';
+
+if (isWindows) {
+  app.setAppUserModelId(appId);
+}
 
 function getBackendBinaryPath() {
   if (app.isPackaged) {
     return path.join(process.resourcesPath, 'backend', backendBinaryName);
   }
   return path.join(__dirname, '..', 'build', 'desktop', 'backend', backendBinaryName);
+}
+
+function getAppIcon() {
+  const iconName = isWindows ? 'icon.ico' : 'icon.png';
+  const icon = nativeImage.createFromPath(path.join(__dirname, 'assets', iconName));
+  return icon.isEmpty() ? undefined : icon;
 }
 
 function isPortAvailable(host, port) {
@@ -253,6 +264,7 @@ async function createWindow() {
     minHeight: 780,
     show: false,
     title: 'Octopus',
+    icon: getAppIcon(),
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,

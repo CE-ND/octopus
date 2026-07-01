@@ -35,6 +35,7 @@
       }
     ],
     "win": {
+      "icon": "desktop/assets/icon.ico",
       "target": [
         "nsis"
       ]
@@ -45,6 +46,7 @@
       ]
     },
     "linux": {
+      "icon": "desktop/assets/icon.png",
       "target": [
         "AppImage"
       ]
