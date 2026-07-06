@@ -919,6 +919,10 @@ func (i ResponsesInput) MarshalJSON() ([]byte, error) {
 }
 
 func (i *ResponsesInput) UnmarshalJSON(data []byte) error {
+	if strings.TrimSpace(string(data)) == "null" {
+		return nil
+	}
+
 	var text string
 	if err := json.Unmarshal(data, &text); err == nil {
 		i.Text = &text
@@ -929,19 +933,24 @@ func (i *ResponsesInput) UnmarshalJSON(data []byte) error {
 		i.Items = items
 		return nil
 	}
+	var item ResponsesItem
+	if err := json.Unmarshal(data, &item); err == nil {
+		i.Items = []ResponsesItem{item}
+		return nil
+	}
 	return fmt.Errorf("invalid input format")
 }
 
 type ResponsesItem struct {
-	ID       string          `json:"id,omitempty"`
-	Type     string          `json:"type,omitempty"`
-	Role     string          `json:"role,omitempty"`
-	Content  *ResponsesInput `json:"content,omitempty"`
-	Status   *string         `json:"status,omitempty"`
-	Text     *string         `json:"text,omitempty"`
-	Refusal  *string         `json:"refusal,omitempty"`
-	ImageURL *string         `json:"image_url,omitempty"`
-	Detail   *string         `json:"detail,omitempty"`
+	ID       string             `json:"id,omitempty"`
+	Type     string             `json:"type,omitempty"`
+	Role     string             `json:"role,omitempty"`
+	Content  *ResponsesInput    `json:"content,omitempty"`
+	Status   *string            `json:"status,omitempty"`
+	Text     *string            `json:"text,omitempty"`
+	Refusal  *string            `json:"refusal,omitempty"`
+	ImageURL *ResponsesImageURL `json:"image_url,omitempty"`
+	Detail   *string            `json:"detail,omitempty"`
 
 	// Annotations for output_text content
 	Annotations *[]ResponsesAnnotation `json:"annotations,omitempty"`
@@ -978,6 +987,44 @@ type ResponsesItem struct {
 	// InputAudio carries the `input_audio` nested object for audio inputs.
 	// O-H6.
 	InputAudio *ResponsesInputAudio `json:"input_audio,omitempty"`
+}
+
+type ResponsesImageURL struct {
+	URL    string
+	Detail *string
+}
+
+func (u ResponsesImageURL) MarshalJSON() ([]byte, error) {
+	if u.Detail != nil {
+		return json.Marshal(struct {
+			URL    string  `json:"url"`
+			Detail *string `json:"detail,omitempty"`
+		}{
+			URL:    u.URL,
+			Detail: u.Detail,
+		})
+	}
+	return json.Marshal(u.URL)
+}
+
+func (u *ResponsesImageURL) UnmarshalJSON(data []byte) error {
+	var url string
+	if err := json.Unmarshal(data, &url); err == nil {
+		u.URL = url
+		return nil
+	}
+
+	var object struct {
+		URL    string  `json:"url"`
+		Detail *string `json:"detail,omitempty"`
+	}
+	if err := json.Unmarshal(data, &object); err == nil && object.URL != "" {
+		u.URL = object.URL
+		u.Detail = object.Detail
+		return nil
+	}
+
+	return fmt.Errorf("invalid image_url format")
 }
 
 // ResponsesInputAudio mirrors OpenAI's `input_audio` content shape used for
@@ -1488,11 +1535,15 @@ func convertInputToMessageContent(input ResponsesInput) model.MessageContent {
 			}
 		case "input_image":
 			if item.ImageURL != nil {
+				detail := item.Detail
+				if detail == nil {
+					detail = item.ImageURL.Detail
+				}
 				parts = append(parts, model.MessageContentPart{
 					Type: "image_url",
 					ImageURL: &model.ImageURL{
-						URL:    *item.ImageURL,
-						Detail: item.Detail,
+						URL:    item.ImageURL.URL,
+						Detail: detail,
 					},
 				})
 			}

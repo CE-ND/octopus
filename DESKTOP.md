@@ -29,6 +29,15 @@ into `build/desktop/backend`, and launches Electron.
 
 ## Packaging
 
+Run packaging commands from the repository root.
+
+Prepare desktop assets only. This builds the frontend, copies `web/out` to
+`static/out`, and compiles the Go backend into `build/desktop/backend`:
+
+```bash
+pnpm desktop:prepare
+```
+
 Create an unpacked app directory:
 
 ```bash
@@ -41,7 +50,37 @@ Create an installer/package with Electron Builder:
 pnpm desktop:dist
 ```
 
-Artifacts are written to `dist/desktop`.
+Artifacts are written to `dist/desktop`. On Windows, `pnpm desktop:dist`
+creates an NSIS installer by default. The installer uses a guided setup flow and
+allows the user to choose the installation directory.
+
+Create the custom Octopus setup UI:
+
+```bash
+pnpm desktop:dist:custom
+```
+
+This first builds the normal NSIS installer as a silent payload, then packages a
+branded Electron setup shell around it. The user-facing artifact is written to
+`dist/installer-ui/Octopus Custom Setup <version>.exe`. It presents Octopus-specific
+pages for install scope, install path, pre-install checks, and progress while the
+payload handles the actual Windows installation in the background.
+
+### Windows symlink permission error
+
+During packaging, Electron Builder may download and extract `winCodeSign`. If
+Windows reports `Cannot create symbolic link` for files such as
+`libcrypto.dylib` or `libssl.dylib`, the current user does not have permission
+to create symbolic links.
+
+Fix it by enabling Windows Developer Mode or by running the packaging command
+from an administrator PowerShell window. After changing the permission, remove
+the failed cache and retry:
+
+```powershell
+Remove-Item "$env:LOCALAPPDATA\electron-builder\Cache\winCodeSign" -Recurse -Force
+pnpm desktop:dist
+```
 
 ## Useful Environment Variables
 

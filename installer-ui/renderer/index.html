@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Octopus Setup</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <aside class="setup-rail">
+        <div class="window-drag"></div>
+        <div class="brand-lockup">
+          <div class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 100 100" role="img">
+              <path d="M50 15 C70 15 85 30 85 50 C85 65 75 75 70 80 M50 15 C30 15 15 30 15 50 C15 65 25 75 30 80" />
+              <path d="M30 80 Q30 90 20 90" />
+              <path d="M43 77 Q43 90 38 90" />
+              <path d="M57 77 Q57 90 62 90" />
+              <path d="M70 80 Q70 90 80 90" />
+            </svg>
+          </div>
+          <div>
+            <strong>Octopus Desktop</strong>
+            <span>本地 LLM 网关</span>
+          </div>
+        </div>
+        <ol class="step-list" aria-label="安装步骤">
+          <li class="current" data-step-label="准备">
+            <span class="step-index">1</span>
+            <span>
+              <strong>准备</strong>
+              <small>确认服务入口</small>
+            </span>
+          </li>
+          <li data-step-label="选项">
+            <span class="step-index">2</span>
+            <span>
+              <strong>选项</strong>
+              <small>范围与安装位置</small>
+            </span>
+          </li>
+          <li data-step-label="检查">
+            <span class="step-index">3</span>
+            <span>
+              <strong>检查</strong>
+              <small>安装前确认</small>
+            </span>
+          </li>
+          <li data-step-label="安装">
+            <span class="step-index">4</span>
+            <span>
+              <strong>安装</strong>
+              <small>写入并启动</small>
+            </span>
+          </li>
+        </ol>
+        <div class="rail-note">
+          <strong>独立数据目录</strong>
+          <p>配置、数据库和日志保存在用户目录，程序更新时不会覆盖本地数据。</p>
+        </div>
+      </aside>
+
+      <section class="content-panel">
+        <header class="titlebar">
+          <div class="titlebar-title">Octopus Setup</div>
+          <div class="titlebar-status" id="titlebarStatus">准备</div>
+          <div class="titlebar-actions">
+            <button class="icon-button" id="minimizeButton" type="button" aria-label="最小化">-</button>
+            <button class="icon-button" id="closeButton" type="button" aria-label="关闭">×</button>
+          </div>
+        </header>
+
+        <section class="page active" data-page="0">
+          <div class="page-copy">
+            <p class="section-label">安装向导</p>
+            <h2>安装 Octopus Desktop</h2>
+            <p>桌面版会在本机启动内置 Go 后端，并打开嵌入式管理面板。默认数据保存在当前用户目录，不会混进程序安装目录。</p>
+          </div>
+          <div class="install-facts">
+            <div>
+              <span>后端入口</span>
+              <strong>127.0.0.1:8080</strong>
+              <small>端口占用时自动切换</small>
+            </div>
+            <div>
+              <span>数据目录</span>
+              <strong id="dataDirLabel">~/.octopus</strong>
+              <small>配置、数据库、日志</small>
+            </div>
+          </div>
+        </section>
+
+        <section class="page" data-page="1">
+          <div class="page-copy compact">
+            <p class="section-label">安装选项</p>
+            <h2>选择安装范围和位置</h2>
+            <p>默认仅安装到当前用户目录。需要让同一台电脑上的其他用户也能使用时，再切换到所有用户。</p>
+          </div>
+
+          <div class="field-group">
+            <label>安装范围</label>
+            <div class="segmented" role="radiogroup" aria-label="安装范围">
+              <button class="segment active" type="button" role="radio" aria-checked="true" data-scope="currentUser">仅当前用户</button>
+              <button class="segment" type="button" role="radio" aria-checked="false" data-scope="allUsers">所有用户</button>
+            </div>
+          </div>
+
+          <div class="field-group">
+            <label for="installDir">安装位置</label>
+            <div class="path-control">
+              <input id="installDir" type="text" spellcheck="false" />
+              <button id="browseButton" type="button">浏览</button>
+            </div>
+          </div>
+
+          <label class="check-row">
+            <input id="desktopShortcut" type="checkbox" checked />
+            <span>创建桌面快捷方式</span>
+          </label>
+
+          <p class="inline-note" id="scopeNote">仅写入当前用户的应用目录，不需要管理员权限。</p>
+        </section>
+
+        <section class="page" data-page="2">
+          <div class="page-copy compact">
+            <p class="section-label">安装检查</p>
+            <h2>准备写入文件</h2>
+          </div>
+          <div class="checklist">
+            <div class="check-item ok">
+              <span></span>
+              <div>
+                <strong>安装包已就绪</strong>
+                <p id="payloadLabel">正在确认 payload</p>
+              </div>
+            </div>
+            <div class="check-item ok">
+              <span></span>
+              <div>
+                <strong>数据目录独立保存</strong>
+                <p id="dataPathReview">配置和日志会保存在用户目录。</p>
+              </div>
+            </div>
+            <div class="check-item ok">
+              <span></span>
+              <div>
+                <strong>本地服务自动启动</strong>
+                <p>安装完成后启动 Octopus，即可进入管理面板。</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="page" data-page="3">
+          <div class="installing is-installing" id="installingPanel">
+            <div class="status-orb" aria-hidden="true">
+              <span class="progress-ring"></span>
+            </div>
+            <div class="page-copy compact">
+              <p class="section-label" id="installStateLabel">正在安装</p>
+              <h2 id="installTitle">写入 Octopus Desktop</h2>
+              <p id="installMessage">这通常只需要一点时间。请保持此窗口打开。</p>
+            </div>
+            <div class="progress-track"><span id="progressBar"></span></div>
+          </div>
+        </section>
+
+        <footer class="footer">
+          <p class="footer-meta" id="footerMeta">确认本机服务入口和数据目录。</p>
+          <button class="secondary-button" id="backButton" type="button">返回</button>
+          <button class="primary-button" id="nextButton" type="button">继续</button>
+        </footer>
+      </section>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

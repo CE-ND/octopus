@@ -106,11 +106,20 @@ pnpm install
 pnpm desktop:dev
 ```
 
-构建桌面安装包：
+桌面端打包命令：
 
 ```bash
+# 只准备桌面端资源：构建前端并编译 Go 后端
+pnpm desktop:prepare
+
+# 生成未安装的应用目录，适合本地检查打包内容
+pnpm desktop:pack
+
+# 生成安装包/发布包，Windows 下默认生成 NSIS 安装器
 pnpm desktop:dist
 ```
+
+打包产物会输出到 `dist/desktop` 目录。
 
 更多打包流程、数据目录和环境变量说明见 [DESKTOP.md](DESKTOP.md)。
 

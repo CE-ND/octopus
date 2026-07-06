@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 )
@@ -30,6 +31,77 @@ func TestConvertToInternalRequestPreservesRawInputItems(t *testing.T) {
 	}
 	if internalReq.TransformOptions.ArrayInputs == nil || !*internalReq.TransformOptions.ArrayInputs {
 		t.Fatalf("expected array input flag to stay true")
+	}
+}
+
+func TestResponseInboundAcceptsSingleInputObject(t *testing.T) {
+	inbound := &ResponseInbound{}
+
+	internalReq, err := inbound.TransformRequest(context.Background(), []byte(`{"model":"gpt-4o","input":{"role":"user","content":"hello"}}`))
+	if err != nil {
+		t.Fatalf("TransformRequest failed: %v", err)
+	}
+	if len(internalReq.Messages) != 1 {
+		t.Fatalf("expected one message, got %#v", internalReq.Messages)
+	}
+	if internalReq.Messages[0].Role != "user" {
+		t.Fatalf("expected user role, got %q", internalReq.Messages[0].Role)
+	}
+	if internalReq.Messages[0].Content.Content == nil || *internalReq.Messages[0].Content.Content != "hello" {
+		t.Fatalf("expected text content to be preserved, got %#v", internalReq.Messages[0].Content)
+	}
+}
+
+func TestResponseInboundAcceptsImageURLObject(t *testing.T) {
+	inbound := &ResponseInbound{}
+	body := []byte(`{
+		"model": "gpt-4o",
+		"input": [{
+			"type": "message",
+			"role": "user",
+			"content": [
+				{"type": "input_text", "text": "what is in this image?"},
+				{"type": "input_image", "image_url": {"url": "data:image/png;base64,AAA=", "detail": "high"}}
+			]
+		}]
+	}`)
+
+	internalReq, err := inbound.TransformRequest(context.Background(), body)
+	if err != nil {
+		t.Fatalf("TransformRequest failed: %v", err)
+	}
+	if len(internalReq.Messages) != 1 {
+		t.Fatalf("expected one message, got %#v", internalReq.Messages)
+	}
+	parts := internalReq.Messages[0].Content.MultipleContent
+	if len(parts) != 2 {
+		t.Fatalf("expected text and image parts, got %#v", parts)
+	}
+	if parts[1].ImageURL == nil || parts[1].ImageURL.URL != "data:image/png;base64,AAA=" {
+		t.Fatalf("expected image URL object to be normalized, got %#v", parts[1])
+	}
+	if parts[1].ImageURL.Detail == nil || *parts[1].ImageURL.Detail != "high" {
+		t.Fatalf("expected image detail to be preserved, got %#v", parts[1].ImageURL)
+	}
+}
+
+func TestResponseInboundAcceptsNullItemContent(t *testing.T) {
+	inbound := &ResponseInbound{}
+	body := []byte(`{
+		"model": "gpt-4o",
+		"input": [
+			{"type": "reasoning", "content": null, "summary": [{"type": "summary_text", "text": "checked"}]},
+			{"type": "function_call", "content": null, "call_id": "call_1", "name": "noop", "arguments": "{}"},
+			{"type": "message", "role": "user", "content": [{"type": "input_text", "text": "hello"}]}
+		]
+	}`)
+
+	internalReq, err := inbound.TransformRequest(context.Background(), body)
+	if err != nil {
+		t.Fatalf("TransformRequest failed: %v", err)
+	}
+	if len(internalReq.Messages) == 0 {
+		t.Fatalf("expected messages to be produced")
 	}
 }
 

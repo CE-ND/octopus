@@ -485,7 +485,7 @@ func parseRequest(inboundType inbound.InboundType, c *gin.Context) ([]byte, *mod
 	inAdapter := inbound.Get(inboundType)
 	internalRequest, err := inAdapter.TransformRequest(c.Request.Context(), body)
 	if err != nil {
-		resp.Error(c, http.StatusInternalServerError, err.Error())
+		resp.Error(c, http.StatusBadRequest, err.Error())
 		return nil, nil, nil, err
 	}
 

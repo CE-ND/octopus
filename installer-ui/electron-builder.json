@@ -1,0 +1,40 @@
+{
+  "appId": "com.hureru.octopus.setup",
+  "productName": "Octopus Setup",
+  "asar": true,
+  "directories": {
+    "output": "dist/installer-ui"
+  },
+  "files": [
+    "installer-ui/**/*"
+  ],
+  "extraMetadata": {
+    "name": "octopus-setup-ui",
+    "version": "0.1.0",
+    "description": "Custom setup UI for Octopus Desktop",
+    "main": "installer-ui/main.js"
+  },
+  "extraResources": [
+    {
+      "from": "build/installer-ui/payload",
+      "to": "payload",
+      "filter": [
+        "**/*"
+      ]
+    }
+  ],
+  "win": {
+    "icon": "desktop/assets/icon.ico",
+    "target": [
+      {
+        "target": "portable",
+        "arch": [
+          "x64"
+        ]
+      }
+    ]
+  },
+  "portable": {
+    "artifactName": "Octopus Custom Setup ${version}.${ext}"
+  }
+}

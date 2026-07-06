@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, nativeImage } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage } = require('electron');
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
@@ -32,6 +32,10 @@ function getAppIcon() {
   const iconName = isWindows ? 'icon.ico' : 'icon.png';
   const icon = nativeImage.createFromPath(path.join(__dirname, 'assets', iconName));
   return icon.isEmpty() ? undefined : icon;
+}
+
+function getEventWindow(event) {
+  return BrowserWindow.fromWebContents(event.sender);
 }
 
 function isPortAvailable(host, port) {
@@ -262,12 +266,15 @@ async function createWindow() {
     height: 960,
     minWidth: 1200,
     minHeight: 780,
+    frame: false,
+    autoHideMenuBar: true,
     show: false,
     title: 'Octopus',
     icon: getAppIcon(),
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
+      preload: path.join(__dirname, 'preload.js'),
       sandbox: true,
     },
   });
@@ -280,6 +287,25 @@ async function createWindow() {
 }
 
 app.commandLine.appendSwitch('disable-http-cache');
+Menu.setApplicationMenu(null);
+
+ipcMain.on('octopus-window:minimize', (event) => {
+  getEventWindow(event)?.minimize();
+});
+
+ipcMain.on('octopus-window:toggle-maximize', (event) => {
+  const window = getEventWindow(event);
+  if (!window) return;
+  if (window.isMaximized()) {
+    window.unmaximize();
+  } else {
+    window.maximize();
+  }
+});
+
+ipcMain.on('octopus-window:close', (event) => {
+  getEventWindow(event)?.close();
+});
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 

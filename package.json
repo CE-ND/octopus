@@ -8,7 +8,8 @@
     "desktop:prepare": "node scripts/desktop-prepare.js",
     "desktop:dev": "pnpm desktop:prepare && electron .",
     "desktop:pack": "pnpm desktop:prepare && electron-builder --dir",
-    "desktop:dist": "pnpm desktop:prepare && electron-builder"
+    "desktop:dist": "pnpm desktop:prepare && electron-builder",
+    "desktop:dist:custom": "node scripts/desktop-custom-installer.js"
   },
   "devDependencies": {
     "electron": "^33.2.1",
@@ -39,6 +40,13 @@
       "target": [
         "nsis"
       ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Octopus"
     },
     "mac": {
       "target": [

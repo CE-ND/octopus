@@ -589,6 +589,24 @@ func TestHandlerRejectsResponsesNativeToolsWithoutResponsesChannel(t *testing.T)
 	}
 }
 
+func TestHandlerResponsesInvalidRequestReturnsBadRequest(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-5.5","input":123}`))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	Handler(inbound.InboundTypeOpenAIResponse, c)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected invalid responses request to return 400, got status %d body %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "invalid input format") {
+		t.Fatalf("expected invalid input error, got %s", recorder.Body.String())
+	}
+}
+
 func TestHandlerFallsBackToNextChannelAfterFirstFailure(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	ctx := setupRelayTestDB(t)

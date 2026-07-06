@@ -90,7 +90,7 @@ func TestConvertInputToMessageContentAudio(t *testing.T) {
 // dropped so we don't surface empty parts downstream.
 func TestConvertInputToMessageContentDropsEmptyMultimodal(t *testing.T) {
 	input := ResponsesInput{Items: []ResponsesItem{
-		{Type: "input_file"}, // no id/url/data
+		{Type: "input_file"},  // no id/url/data
 		{Type: "input_audio"}, // nil input_audio
 	}}
 	content := convertInputToMessageContent(input)
@@ -103,7 +103,7 @@ func TestConvertInputToMessageContentDropsEmptyMultimodal(t *testing.T) {
 func TestConvertInputToMessageContentKeepsTextAndImage(t *testing.T) {
 	input := ResponsesInput{Items: []ResponsesItem{
 		{Type: "input_text", Text: stringPtr("hi")},
-		{Type: "input_image", ImageURL: stringPtr("https://example.com/pic.png"), Detail: stringPtr("high")},
+		{Type: "input_image", ImageURL: &ResponsesImageURL{URL: "https://example.com/pic.png"}, Detail: stringPtr("high")},
 	}}
 	content := convertInputToMessageContent(input)
 	if len(content.MultipleContent) != 2 {
