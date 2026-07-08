@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -591,6 +592,9 @@ func TestHandlerRejectsResponsesNativeToolsWithoutResponsesChannel(t *testing.T)
 
 func TestHandlerResponsesInvalidRequestReturnsBadRequest(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	dumpDir := t.TempDir()
+	t.Setenv("OCTOPUS_DUMP_BAD_RESPONSES", "1")
+	t.Setenv("OCTOPUS_DUMP_BAD_RESPONSES_DIR", dumpDir)
 
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
@@ -604,6 +608,22 @@ func TestHandlerResponsesInvalidRequestReturnsBadRequest(t *testing.T) {
 	}
 	if !strings.Contains(recorder.Body.String(), "invalid input format") {
 		t.Fatalf("expected invalid input error, got %s", recorder.Body.String())
+	}
+
+	entries, err := os.ReadDir(dumpDir)
+	if err != nil {
+		t.Fatalf("failed to read dump dir: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected one bad responses dump, got %d", len(entries))
+	}
+	data, err := os.ReadFile(filepath.Join(dumpDir, entries[0].Name()))
+	if err != nil {
+		t.Fatalf("failed to read dump file: %v", err)
+	}
+	text := string(data)
+	if !strings.Contains(text, `"input": 123`) || !strings.Contains(text, "failed to decode responses api request") {
+		t.Fatalf("dump file did not contain request body and error: %s", text)
 	}
 }
 

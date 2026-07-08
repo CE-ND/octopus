@@ -17,6 +17,7 @@ const (
 	SettingKeySiteCheckinInterval              SettingKey = "site_checkin_interval"                // 站点自动签到间隔(小时)
 	SettingKeyRelayLogKeepPeriod               SettingKey = "relay_log_keep_period"                // 日志保存时间范围(天)
 	SettingKeyRelayLogKeepEnabled              SettingKey = "relay_log_keep_enabled"               // 是否保留历史日志
+	SettingKeyDumpBadResponsesEnabled          SettingKey = "dump_bad_responses_enabled"           // 是否保存解析失败的 OpenAI Responses 请求体
 	SettingKeyCORSAllowOrigins                 SettingKey = "cors_allow_origins"                   // 跨域白名单(逗号分隔, 如 "example.com,example2.com"). 为空不允许跨域, "*"允许所有
 	SettingKeyCircuitBreakerThreshold          SettingKey = "circuit_breaker_threshold"            // 熔断触发阈值（连续失败次数）
 	SettingKeyCircuitBreakerCooldown           SettingKey = "circuit_breaker_cooldown"             // 熔断基础冷却时间（秒）
@@ -58,6 +59,7 @@ func DefaultSettings() []Setting {
 		{Key: SettingKeySiteCheckinInterval, Value: "24"},             // 默认24小时自动签到一次
 		{Key: SettingKeyRelayLogKeepPeriod, Value: "7"},               // 默认日志保存7天
 		{Key: SettingKeyRelayLogKeepEnabled, Value: "true"},           // 默认保留历史日志
+		{Key: SettingKeyDumpBadResponsesEnabled, Value: "false"},      // 默认不保存解析失败的请求体，避免敏感信息落盘
 		{Key: SettingKeyCircuitBreakerThreshold, Value: "5"},          // 默认连续失败5次触发熔断
 		{Key: SettingKeyCircuitBreakerCooldown, Value: "60"},          // 默认基础冷却60秒
 		{Key: SettingKeyCircuitBreakerMaxCooldown, Value: "600"},      // 默认最大冷却600秒（10分钟）
@@ -113,7 +115,7 @@ func (s *Setting) Validate() error {
 			return fmt.Errorf("setting value must be non-negative")
 		}
 		return nil
-	case SettingKeyRelayLogKeepEnabled, SettingKeyResponsesWSEnabled, SettingKeyGroupHealthEnabled, SettingKeyStatsSiteModelBackfilled, SettingKeyOutlierRetireEnabled:
+	case SettingKeyRelayLogKeepEnabled, SettingKeyDumpBadResponsesEnabled, SettingKeyResponsesWSEnabled, SettingKeyGroupHealthEnabled, SettingKeyStatsSiteModelBackfilled, SettingKeyOutlierRetireEnabled:
 		if s.Value != "true" && s.Value != "false" {
 			return fmt.Errorf("setting value must be true or false")
 		}

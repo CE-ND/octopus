@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -485,6 +487,9 @@ func parseRequest(inboundType inbound.InboundType, c *gin.Context) ([]byte, *mod
 	inAdapter := inbound.Get(inboundType)
 	internalRequest, err := inAdapter.TransformRequest(c.Request.Context(), body)
 	if err != nil {
+		if inboundType == inbound.InboundTypeOpenAIResponse {
+			dumpBadResponsesRequest(c, body, err)
+		}
 		resp.Error(c, http.StatusBadRequest, err.Error())
 		return nil, nil, nil, err
 	}
@@ -498,6 +503,71 @@ func parseRequest(inboundType inbound.InboundType, c *gin.Context) ([]byte, *mod
 	}
 
 	return body, internalRequest, inAdapter, nil
+}
+
+type badResponsesRequestDump struct {
+	Time        string          `json:"time"`
+	Method      string          `json:"method"`
+	Path        string          `json:"path"`
+	ContentType string          `json:"content_type,omitempty"`
+	UserAgent   string          `json:"user_agent,omitempty"`
+	Error       string          `json:"error"`
+	Body        json.RawMessage `json:"body,omitempty"`
+	BodyText    string          `json:"body_text,omitempty"`
+}
+
+func dumpBadResponsesRequest(c *gin.Context, body []byte, parseErr error) {
+	if !badResponsesDumpEnabled() {
+		return
+	}
+
+	dir := strings.TrimSpace(os.Getenv("OCTOPUS_DUMP_BAD_RESPONSES_DIR"))
+	if dir == "" {
+		dir = filepath.Join("logs", "bad-responses")
+	}
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		log.Warnf("failed to create bad responses dump dir: %v", err)
+		return
+	}
+
+	now := time.Now()
+	dump := badResponsesRequestDump{
+		Time:        now.Format(time.RFC3339Nano),
+		Method:      c.Request.Method,
+		Path:        c.Request.URL.RequestURI(),
+		ContentType: c.GetHeader("Content-Type"),
+		UserAgent:   c.GetHeader("User-Agent"),
+		Error:       parseErr.Error(),
+	}
+	trimmed := bytes.TrimSpace(body)
+	if len(trimmed) > 0 && json.Valid(trimmed) {
+		dump.Body = append(json.RawMessage(nil), trimmed...)
+	} else {
+		dump.BodyText = string(body)
+	}
+
+	data, err := json.MarshalIndent(dump, "", "  ")
+	if err != nil {
+		log.Warnf("failed to marshal bad responses dump: %v", err)
+		return
+	}
+
+	filename := fmt.Sprintf("bad-responses-%s.json", now.Format("20060102-150405.000000000"))
+	path := filepath.Join(dir, filename)
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		log.Warnf("failed to write bad responses dump: %v", err)
+		return
+	}
+	log.Warnf("dumped invalid OpenAI Responses request to %s: %v", path, parseErr)
+}
+
+func badResponsesDumpEnabled() bool {
+	value := strings.TrimSpace(strings.ToLower(os.Getenv("OCTOPUS_DUMP_BAD_RESPONSES")))
+	if value == "1" || value == "true" || value == "yes" {
+		return true
+	}
+	enabled, err := op.SettingGetBool(dbmodel.SettingKeyDumpBadResponsesEnabled)
+	return err == nil && enabled
 }
 
 // forward 转发请求到上游服务

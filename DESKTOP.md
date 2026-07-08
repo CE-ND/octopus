@@ -84,9 +84,9 @@ pnpm desktop:dist
 
 ## Useful Environment Variables
 
-- `OCTOPUS_DESKTOP_PORT=8080`: preferred local backend port. If the port is in
-  use, Electron falls back to a random free port.
-- `OCTOPUS_SERVER_PORT=8080`: also works as the preferred desktop port, matching
+- `OCTOPUS_DESKTOP_PORT=18777`: preferred local backend port. If the port is in
+  use, Electron shows an error and stops startup.
+- `OCTOPUS_SERVER_PORT=18777`: also works as the preferred desktop port, matching
   the normal backend configuration name.
 - `OCTOPUS_DESKTOP_SKIP_FRONTEND=1`: reuse an existing `web/out` build.
 - `OCTOPUS_DESKTOP_SKIP_INSTALL=1`: skip `pnpm install` inside `web`.

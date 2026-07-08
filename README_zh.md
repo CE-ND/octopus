@@ -47,7 +47,7 @@ Octopus 是一个面向个人和小团队的自托管 LLM API 网关。它把多
 直接运行
 
 ```bash
-docker run -d --name octopus -v /path/to/data:/app/data -p 8080:8080 hureru/octopus
+docker run -d --name octopus -v /path/to/data:/app/data -p 18777:18777 hureru/octopus
 ```
 
 或者使用 docker compose 运行
@@ -90,7 +90,7 @@ go run main.go start
 **开发模式**
 
 ```bash
-cd web && pnpm install && NEXT_PUBLIC_API_BASE_URL="http://127.0.0.1:8080" pnpm run dev
+cd web && pnpm install && NEXT_PUBLIC_API_BASE_URL="http://127.0.0.1:18777" pnpm run dev
 ## 新建终端,启动后端服务
 go run main.go start
 ## 访问前端地址
@@ -125,7 +125,7 @@ pnpm desktop:dist
 
 ### 🔐 默认账户
 
-首次启动后，访问 http://localhost:8080 使用以下默认账户登录管理面板：
+首次启动后，访问 http://localhost:18777 使用以下默认账户登录管理面板：
 
 - **用户名**：`admin`
 - **密码**：`admin`
@@ -142,7 +142,7 @@ pnpm desktop:dist
 {
   "server": {
     "host": "0.0.0.0",
-    "port": 8080
+    "port": 18777
   },
   "database": {
     "type": "sqlite",
@@ -159,7 +159,7 @@ pnpm desktop:dist
 | 配置项 | 说明 | 默认值 |
 |--------|------|--------|
 | `server.host` | 监听地址 | `0.0.0.0` |
-| `server.port` | 服务端口 | `8080` |
+| `server.port` | 服务端口 | `18777` |
 | `database.type` | 数据库类型 | `sqlite` |
 | `database.path` | 数据库连接地址 | `data/data.db` |
 | `log.level` | 日志级别 | `info` |
@@ -359,9 +359,9 @@ pnpm desktop:dist
 from openai import OpenAI
 import os
 
-client = OpenAI(   
-    base_url="http://127.0.0.1:8080/v1",   
-    api_key="sk-octopus-P48ROljwJmWBYVARjwQM8Nkiezlg7WOrXXOWDYY8TI5p9Mzg", 
+client = OpenAI(
+    base_url="http://127.0.0.1:18777/v1",
+    api_key="sk-octopus-P48ROljwJmWBYVARjwQM8Nkiezlg7WOrXXOWDYY8TI5p9Mzg",
 )
 completion = client.chat.completions.create(
     model="octopus-openai",  // 填写正确的分组名称
@@ -379,7 +379,7 @@ print(completion.choices[0].message.content)
 ```json
 {
   "env": {
-    "ANTHROPIC_BASE_URL": "http://127.0.0.1:8080",
+    "ANTHROPIC_BASE_URL": "http://127.0.0.1:18777",
     "ANTHROPIC_AUTH_TOKEN": "sk-octopus-P48ROljwJmWBYVARjwQM8Nkiezlg7WOrXXOWDYY8TI5p9Mzg",
     "API_TIMEOUT_MS": "3000000",
     "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
@@ -403,7 +403,7 @@ model_provider = "octopus"
 
 [model_providers.octopus]
 name = "octopus"
-base_url = "http://127.0.0.1:8080/v1"
+base_url = "http://127.0.0.1:18777/v1"
 ```
 编辑 `~/.codex/auth.json`
 

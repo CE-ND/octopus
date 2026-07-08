@@ -407,6 +407,10 @@
             "enabled": {
                 "label": "启用历史日志"
             },
+            "badResponsesDump": {
+                "label": "保存失败请求",
+                "description": "开启后会把解析失败的 OpenAI Responses 请求体保存到本地 logs/bad-responses 目录，可能包含提示词、文件路径和工具调用内容。"
+            },
             "keepPeriod": {
                 "label": "日志保存天数",
                 "placeholder": "请输入天数"

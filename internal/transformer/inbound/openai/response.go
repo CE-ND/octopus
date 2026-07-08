@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -987,6 +988,35 @@ type ResponsesItem struct {
 	// InputAudio carries the `input_audio` nested object for audio inputs.
 	// O-H6.
 	InputAudio *ResponsesInputAudio `json:"input_audio,omitempty"`
+}
+
+func (item *ResponsesItem) UnmarshalJSON(data []byte) error {
+	type alias ResponsesItem
+	var raw struct {
+		*alias
+		Arguments json.RawMessage `json:"arguments,omitempty"`
+	}
+	raw.alias = (*alias)(item)
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if len(raw.Arguments) == 0 {
+		return nil
+	}
+
+	var text string
+	if err := json.Unmarshal(raw.Arguments, &text); err == nil {
+		item.Arguments = text
+		return nil
+	}
+
+	var compact bytes.Buffer
+	if err := json.Compact(&compact, raw.Arguments); err == nil {
+		item.Arguments = compact.String()
+		return nil
+	}
+	item.Arguments = string(raw.Arguments)
+	return nil
 }
 
 type ResponsesImageURL struct {

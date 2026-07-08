@@ -47,7 +47,7 @@ The project is made of three layers:
 Run directly:
 
 ```bash
-docker run -d --name octopus -v /path/to/data:/app/data -p 8080:8080 hureru/octopus
+docker run -d --name octopus -v /path/to/data:/app/data -p 18777:18777 hureru/octopus
 ```
 
 Or use docker compose:
@@ -90,7 +90,7 @@ go run main.go start
 **Development Mode**
 
 ```bash
-cd web && pnpm install && NEXT_PUBLIC_API_BASE_URL="http://127.0.0.1:8080" pnpm run dev
+cd web && pnpm install && NEXT_PUBLIC_API_BASE_URL="http://127.0.0.1:18777" pnpm run dev
 ## Open a new terminal, start the backend service
 go run main.go start
 ## Access the frontend at
@@ -116,7 +116,7 @@ See [DESKTOP.md](DESKTOP.md) for packaging details, data directory behavior, and
 
 ### 🔐 Default Credentials
 
-After first launch, visit http://localhost:8080 and log in to the management panel with:
+After first launch, visit http://localhost:18777 and log in to the management panel with:
 
 - **Username**: `admin`
 - **Password**: `admin`
@@ -133,7 +133,7 @@ The configuration file is located at `data/config.json` by default and is automa
 {
   "server": {
     "host": "0.0.0.0",
-    "port": 8080
+    "port": 18777
   },
   "database": {
     "type": "sqlite",
@@ -150,7 +150,7 @@ The configuration file is located at `data/config.json` by default and is automa
 | Option | Description | Default |
 |--------|-------------|---------|
 | `server.host` | Listen address | `0.0.0.0` |
-| `server.port` | Server port | `8080` |
+| `server.port` | Server port | `18777` |
 | `database.type` | Database type | `sqlite` |
 | `database.path` | Database connection string | `data/data.db` |
 | `log.level` | Log level | `info` |
@@ -348,9 +348,9 @@ Since the program handles numerous statistics, writing to the database on every 
 from openai import OpenAI
 import os
 
-client = OpenAI(   
-    base_url="http://127.0.0.1:8080/v1",   
-    api_key="sk-octopus-P48ROljwJmWBYVARjwQM8Nkiezlg7WOrXXOWDYY8TI5p9Mzg", 
+client = OpenAI(
+    base_url="http://127.0.0.1:18777/v1",
+    api_key="sk-octopus-P48ROljwJmWBYVARjwQM8Nkiezlg7WOrXXOWDYY8TI5p9Mzg",
 )
 completion = client.chat.completions.create(
     model="octopus-openai",  # Use the correct group name
@@ -368,7 +368,7 @@ Edit `~/.claude/settings.json`
 ```json
 {
   "env": {
-    "ANTHROPIC_BASE_URL": "http://127.0.0.1:8080",
+    "ANTHROPIC_BASE_URL": "http://127.0.0.1:18777",
     "ANTHROPIC_AUTH_TOKEN": "sk-octopus-P48ROljwJmWBYVARjwQM8Nkiezlg7WOrXXOWDYY8TI5p9Mzg",
     "API_TIMEOUT_MS": "3000000",
     "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
@@ -392,7 +392,7 @@ model_provider = "octopus"
 
 [model_providers.octopus]
 name = "octopus"
-base_url = "http://127.0.0.1:8080/v1"
+base_url = "http://127.0.0.1:18777/v1"
 ```
 
 Edit `~/.codex/auth.json`

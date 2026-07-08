@@ -105,6 +105,45 @@ func TestResponseInboundAcceptsNullItemContent(t *testing.T) {
 	}
 }
 
+func TestResponseInboundAcceptsNativeToolCallArgumentsObject(t *testing.T) {
+	body := []byte(`{
+		"model": "gpt-4o",
+		"input": [{
+			"type": "tool_search_call",
+			"call_id": "call_123",
+			"status": "completed",
+			"execution": "client",
+			"arguments": {
+				"query": "node_repl js",
+				"limit": 10
+			}
+		}]
+	}`)
+
+	var req ResponsesRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		t.Fatalf("unmarshal responses request failed: %v", err)
+	}
+	if len(req.Input.Items) != 1 {
+		t.Fatalf("expected one input item, got %#v", req.Input.Items)
+	}
+	if req.Input.Items[0].Arguments != `{"query":"node_repl js","limit":10}` {
+		t.Fatalf("expected object arguments to be preserved as JSON text, got %q", req.Input.Items[0].Arguments)
+	}
+
+	inbound := &ResponseInbound{}
+	internalReq, err := inbound.TransformRequest(context.Background(), body)
+	if err != nil {
+		t.Fatalf("TransformRequest failed: %v", err)
+	}
+	if !internalReq.HasOpenAIResponsesPassthrough() {
+		t.Fatalf("expected native tool call input item to require passthrough")
+	}
+	if reason := internalReq.OpenAIResponsesPassthroughReasonTextValue(); reason != "input:tool_search_call" {
+		t.Fatalf("expected passthrough reason input:tool_search_call, got %q", reason)
+	}
+}
+
 func TestConvertToInternalRequestMarksPassthroughForUnsupportedToolType(t *testing.T) {
 	req := &ResponsesRequest{
 		Model: "gpt-4o",

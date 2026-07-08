@@ -12,10 +12,12 @@ let backendLogStream = null;
 let shutdownToken = null;
 let shuttingDown = false;
 let stopBackendPromise = null;
+let backendStartError = null;
 
 const isWindows = process.platform === 'win32';
 const appId = 'com.hureru.octopus.desktop';
 const backendBinaryName = isWindows ? 'octopus.exe' : 'octopus';
+const defaultBackendPort = 18777;
 
 if (isWindows) {
   app.setAppUserModelId(appId);
@@ -54,31 +56,18 @@ function isPortAvailable(host, port) {
   });
 }
 
-function getRandomAvailablePort(host) {
-  return new Promise((resolve, reject) => {
-    const server = net.createServer();
-    server.once('error', reject);
-    server.listen({ host, port: 0 }, () => {
-      const address = server.address();
-      const port = typeof address === 'object' && address ? address.port : null;
-      server.close((err) => {
-        if (err) {
-          reject(err);
-        } else if (port) {
-          resolve(port);
-        } else {
-          reject(new Error('failed to allocate a local port'));
-        }
-      });
-    });
-  });
-}
-
 async function choosePort(host, preferredPort) {
   if (await isPortAvailable(host, preferredPort)) {
     return preferredPort;
   }
-  return getRandomAvailablePort(host);
+  throw new Error(
+    `Octopus backend port ${preferredPort} is already in use. Close the service using ${host}:${preferredPort}, or start Octopus with OCTOPUS_DESKTOP_PORT set to another free port.`
+  );
+}
+
+function parsePort(value) {
+  const port = Number.parseInt(value || '', 10);
+  return Number.isInteger(port) && port > 0 && port <= 65535 ? port : null;
 }
 
 async function waitForBackendHealth(timeoutMs = 30000) {
@@ -86,6 +75,10 @@ async function waitForBackendHealth(timeoutMs = 30000) {
   let lastError = null;
 
   while (Date.now() - start < timeoutMs) {
+    if (backendStartError) {
+      throw new Error(`backend failed to start: ${backendStartError.message}`);
+    }
+
     if (backendProcess && backendProcess.exitCode !== null) {
       throw new Error(`backend exited early with code ${backendProcess.exitCode}`);
     }
@@ -107,16 +100,11 @@ async function waitForBackendHealth(timeoutMs = 30000) {
   throw lastError || new Error('backend health check timed out');
 }
 
-function readExistingPort(configPath) {
-  try {
-    if (!fs.existsSync(configPath)) return null;
-    const parsed = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-    const port = parsed?.server?.port;
-    if (Number.isInteger(port) && port > 0) return port;
-  } catch (_) {
-    // ignore broken config and fall back to the default
-  }
-  return null;
+function resolvePreferredPort() {
+  const envPort = parsePort(process.env.OCTOPUS_DESKTOP_PORT || process.env.OCTOPUS_SERVER_PORT || '');
+  if (envPort) return envPort;
+
+  return defaultBackendPort;
 }
 
 function directoryHasEntries(dir) {
@@ -164,16 +152,14 @@ async function startBackend() {
   const { root, dataDir, configPath, logDir } = getUserDataPaths();
   fs.mkdirSync(dataDir, { recursive: true });
   fs.mkdirSync(logDir, { recursive: true });
-  backendLogStream = fs.createWriteStream(path.join(logDir, 'backend.log'), { flags: 'a' });
 
   const host = '127.0.0.1';
-  const preferredPort =
-    Number.parseInt(process.env.OCTOPUS_DESKTOP_PORT || process.env.OCTOPUS_SERVER_PORT || '', 10) ||
-    readExistingPort(configPath) ||
-    8080;
+  const preferredPort = resolvePreferredPort();
   const port = await choosePort(host, preferredPort);
   shutdownToken = crypto.randomBytes(24).toString('hex');
   backendBaseUrl = `http://${host}:${port}`;
+  backendLogStream = fs.createWriteStream(path.join(logDir, 'backend.log'), { flags: 'a' });
+  backendStartError = null;
 
   const env = {
     ...process.env,
@@ -192,6 +178,11 @@ async function startBackend() {
 
   backendProcess.stdout.on('data', (chunk) => backendLogStream.write(chunk));
   backendProcess.stderr.on('data', (chunk) => backendLogStream.write(chunk));
+
+  backendProcess.once('error', (err) => {
+    backendStartError = err;
+    backendLogStream.write(`backend process error: ${err.message}\n`);
+  });
 
   backendProcess.on('exit', (code, signal) => {
     backendLogStream.end();

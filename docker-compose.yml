@@ -2,7 +2,7 @@ services:
   octopus:
     image: hureru/octopus
     ports:
-       - '8080:8080'
+       - '18777:18777'
     volumes:      
        - '/path/to/data:/app/data'
     container_name: octopus

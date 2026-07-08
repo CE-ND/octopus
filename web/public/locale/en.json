@@ -407,6 +407,10 @@
             "enabled": {
                 "label": "Enable History Logs"
             },
+            "badResponsesDump": {
+                "label": "Save Failed Requests",
+                "description": "When enabled, invalid OpenAI Responses request bodies are saved to the local logs/bad-responses directory. They may include prompts, file paths, and tool call content."
+            },
             "keepPeriod": {
                 "label": "Log Retention (days)",
                 "placeholder": "Enter days"

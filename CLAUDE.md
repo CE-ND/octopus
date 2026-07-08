@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### 后端 (Go)
 ```bash
-go run main.go start                # 启动服务 (默认 0.0.0.0:8080)
+go run main.go start                # 启动服务 (默认 0.0.0.0:18777)
 go run main.go start --config path  # 指定配置文件
 go test ./...                       # 运行所有测试
 ```
@@ -16,7 +16,7 @@ go test ./...                       # 运行所有测试
 cd web
 pnpm install                        # 安装依赖
 pnpm dev                            # 开发服务器 (localhost:3000)
-NEXT_PUBLIC_API_BASE_URL="http://127.0.0.1:8080" pnpm dev  # 指定后端地址
+NEXT_PUBLIC_API_BASE_URL="http://127.0.0.1:18777" pnpm dev  # 指定后端地址
 pnpm build                          # 生产构建 (输出到 web/out/)
 pnpm lint                           # ESLint 检查
 ```

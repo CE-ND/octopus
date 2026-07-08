@@ -73,7 +73,7 @@ If your typical use case is "importing relay sites for aggregated use", here's t
         ↓
 5) Octopus [Settings] → API Keys → Add Key (get the sk-octopus-... string)
         ↓
-6) In your client: URL http://your-IP:8080/v1 + the Key from step 5 + the group name from step 4 as model
+6) In your client: URL http://your-IP:18777/v1 + the Key from step 5 + the group name from step 4 as model
 ```
 
 > ✅ Once complete, the site is ready to use. You generally won't need to touch the configuration again unless you **add a new site**.
@@ -105,7 +105,7 @@ If your provider isn't a relay site but gave you a Base URL + Key directly (e.g.
 
 **Docker run:**
 ```bash
-docker run -d --name octopus -v /path/to/data:/app/data -p 8080:8080 hureru/octopus
+docker run -d --name octopus -v /path/to/data:/app/data -p 18777:18777 hureru/octopus
 ```
 
 **docker compose:**
@@ -118,7 +118,7 @@ docker compose up -d
 
 ### 4.2 First Login
 
-Open `http://your-IP:8080` in a browser. Default credentials:
+Open `http://your-IP:18777` in a browser. Default credentials:
 
 - Username: `admin`
 - Password: `admin`
@@ -346,7 +346,7 @@ Go to **Settings → API Keys → Add Key**:
 Verify with curl after creation (replace IP and Key with yours):
 
 ```bash
-curl http://your-IP:8080/v1/models \
+curl http://your-IP:18777/v1/models \
   -H "Authorization: Bearer sk-octopus-your-key"
 ```
 
@@ -355,14 +355,14 @@ If it lists models (which are your **group names**), you're good to go.
 ### 8.2 Common Client Integration
 
 **OpenAI SDK / Cherry Studio / Immersive Translate**, etc.:
-- URL (Base URL): `http://your-IP:8080/v1`
+- URL (Base URL): `http://your-IP:18777/v1`
 - API Key: `sk-octopus-...`
 - Model: Your **group name**
 
 ```python
 from openai import OpenAI
 client = OpenAI(
-    base_url="http://127.0.0.1:8080/v1",
+    base_url="http://127.0.0.1:18777/v1",
     api_key="sk-octopus-xxxx",
 )
 resp = client.chat.completions.create(
@@ -376,7 +376,7 @@ print(resp.choices[0].message.content)
 ```json
 {
   "env": {
-    "ANTHROPIC_BASE_URL": "http://127.0.0.1:8080",
+    "ANTHROPIC_BASE_URL": "http://127.0.0.1:18777",
     "ANTHROPIC_AUTH_TOKEN": "sk-octopus-xxxx",
     "ANTHROPIC_MODEL": "octopus-sonnet-4-5",
     "ANTHROPIC_SMALL_FAST_MODEL": "octopus-haiku-4-5"
@@ -390,7 +390,7 @@ model = "octopus-codex"        # Use your group name
 model_provider = "octopus"
 [model_providers.octopus]
 name = "octopus"
-base_url = "http://127.0.0.1:8080/v1"
+base_url = "http://127.0.0.1:18777/v1"
 ```
 ```json
 { "OPENAI_API_KEY": "sk-octopus-xxxx" }

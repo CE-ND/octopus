@@ -407,6 +407,10 @@
             "enabled": {
                 "label": "啟用歷史日誌"
             },
+            "badResponsesDump": {
+                "label": "保存失敗請求",
+                "description": "開啟後會把解析失敗的 OpenAI Responses 請求體保存到本地 logs/bad-responses 目錄，可能包含提示詞、文件路徑和工具調用內容。"
+            },
             "keepPeriod": {
                 "label": "日誌保存天數",
                 "placeholder": "請輸入天數"
