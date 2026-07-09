@@ -88,10 +88,10 @@ function ensureDesktopWindowControls() {
       position: relative;
       display: inline-grid;
       place-items: center;
-      border: 1px solid rgba(255, 255, 255, 0.12);
+      border: 1px solid rgba(0, 0, 0, 0.14);
       border-radius: 999px;
-      background: rgba(255, 255, 255, 0.08);
-      color: rgba(255, 255, 255, 0.76);
+      background: rgba(0, 0, 0, 0.05);
+      color: rgba(0, 0, 0, 0.62);
       cursor: default;
       padding: 0;
       backdrop-filter: blur(10px);
@@ -99,6 +99,18 @@ function ensureDesktopWindowControls() {
     }
 
     .octopus-window-control:hover {
+      border-color: rgba(0, 0, 0, 0.26);
+      background: rgba(0, 0, 0, 0.10);
+      color: rgba(0, 0, 0, 0.88);
+    }
+
+    html.dark .octopus-window-control {
+      border-color: rgba(255, 255, 255, 0.12);
+      background: rgba(255, 255, 255, 0.08);
+      color: rgba(255, 255, 255, 0.76);
+    }
+
+    html.dark .octopus-window-control:hover {
       border-color: rgba(255, 255, 255, 0.24);
       background: rgba(255, 255, 255, 0.16);
       color: #ffffff;
