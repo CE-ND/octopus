@@ -236,6 +236,17 @@ func (o *ResponseOutbound) TransformStreamEvent(ctx context.Context, eventData [
 			events = append(events, model.StreamEvent{Kind: model.StreamEventKindToolCallDelta, ID: base.ID, Model: base.Model, Index: base.Index, ToolCall: &toolCall, Delta: &model.StreamDelta{Arguments: streamEvent.Delta}})
 		}
 
+	case "response.function_call_arguments.done":
+		events = append(events, o.emitFunctionCallArgumentsRemainder(base, streamEvent.OutputIndex, streamEvent.CallID, streamEvent.Name, streamEvent.Arguments)...)
+
+	case "response.output_item.done":
+		// Some upstreams never stream function_call_arguments.delta and only carry
+		// the full arguments on the done events; forward the missing remainder.
+		if streamEvent.Item != nil && streamEvent.Item.Type == "function_call" {
+			events = append(events, o.emitFunctionCallArgumentsRemainder(base, streamEvent.OutputIndex, streamEvent.Item.CallID, streamEvent.Item.Name, streamEvent.Item.Arguments)...)
+		}
+		o.mergeOutputItemAdded(streamEvent)
+
 	case "response.output_item.added":
 		o.mergeOutputItemAdded(streamEvent)
 		if streamEvent.Item != nil && streamEvent.Item.Type == "function_call" {
@@ -266,6 +277,13 @@ func (o *ResponseOutbound) TransformStreamEvent(ctx context.Context, eventData [
 
 	case "response.completed":
 		if streamEvent.Response != nil {
+			// Some upstreams only carry full function-call arguments in the final
+			// response output; forward any remainder before closing the stream.
+			for idx, outputItem := range streamEvent.Response.Output {
+				if outputItem.Type == "function_call" && outputItem.Arguments != "" {
+					events = append(events, o.emitFunctionCallArgumentsRemainder(base, idx, outputItem.CallID, outputItem.Name, outputItem.Arguments)...)
+				}
+			}
 			if len(streamEvent.Response.Output) > 0 {
 				if rawOutput, marshalErr := json.Marshal(sanitizeResponsesItems(streamEvent.Response.Output)); marshalErr == nil {
 					base.ProviderExtensions = &model.ProviderExtensions{OpenAI: &model.OpenAIExtension{RawResponseItems: rawOutput}}
@@ -1550,6 +1568,40 @@ func (o *ResponseOutbound) mergeOutputTextDelta(event ResponsesStreamEvent) {
 	}
 	*item.Content.Items[contentIndex].Text += event.Delta
 	o.outputItems[event.OutputIndex] = item
+}
+
+// emitFunctionCallArgumentsRemainder forwards the portion of a function call's
+// arguments that has not been streamed via function_call_arguments.delta yet.
+// Upstreams that only include arguments on terminal events would otherwise
+// leave downstream clients with an argument-less tool call.
+func (o *ResponseOutbound) emitFunctionCallArgumentsRemainder(base model.StreamEvent, outputIndex int, callID, name, fullArguments string) []model.StreamEvent {
+	item := o.ensureOutputItem(outputIndex, "function_call")
+	if item.Type != "function_call" {
+		return nil
+	}
+	item.CallID = firstNonEmpty(item.CallID, callID)
+	item.Name = firstNonEmpty(item.Name, name)
+	suffix := ""
+	if fullArguments != "" && strings.HasPrefix(fullArguments, item.Arguments) {
+		suffix = fullArguments[len(item.Arguments):]
+	}
+	item.Arguments += suffix
+	o.outputItems[outputIndex] = item
+	if suffix == "" {
+		return nil
+	}
+	toolCall := model.ToolCall{
+		Index: o.toolCallIndexFor(outputIndex),
+		ID:    item.CallID,
+		Type:  "function",
+		Function: model.FunctionCall{
+			Name: item.Name,
+		},
+	}
+	return []model.StreamEvent{
+		{Kind: model.StreamEventKindToolCallStart, ID: base.ID, Model: base.Model, Index: base.Index, ToolCall: &toolCall},
+		{Kind: model.StreamEventKindToolCallDelta, ID: base.ID, Model: base.Model, Index: base.Index, ToolCall: &toolCall, Delta: &model.StreamDelta{Arguments: suffix}},
+	}
 }
 
 func (o *ResponseOutbound) mergeFunctionCallDelta(event ResponsesStreamEvent) {

@@ -206,12 +206,12 @@ func (i *ResponseInbound) processStreamEvents(ctx context.Context, events []mode
 
 		case model.StreamEventKindToolCallStart:
 			if event.ToolCall != nil {
-				out = append(out, i.handleToolCalls([]model.ToolCall{*event.ToolCall})...)
+				out = append(out, i.handleToolCalls([]model.ToolCall{mergeToolCallDelta(*event.ToolCall, event.Delta)})...)
 			}
 
 		case model.StreamEventKindToolCallDelta:
 			if event.ToolCall != nil {
-				out = append(out, i.handleToolCalls([]model.ToolCall{*event.ToolCall})...)
+				out = append(out, i.handleToolCalls([]model.ToolCall{mergeToolCallDelta(*event.ToolCall, event.Delta)})...)
 			}
 
 		case model.StreamEventKindMessageStop:
@@ -489,6 +489,17 @@ func (i *ResponseInbound) handleRefusalContent(content string) [][]byte {
 	}))
 
 	return events
+}
+
+// mergeToolCallDelta folds the streaming argument delta carried on the event
+// into the tool call's Function.Arguments. The OpenAI Responses outbound emits
+// incremental arguments via StreamDelta.Arguments while leaving the ToolCall's
+// own Arguments empty, so without this the function call would arrive empty.
+func mergeToolCallDelta(toolCall model.ToolCall, delta *model.StreamDelta) model.ToolCall {
+	if delta != nil && delta.Arguments != "" && toolCall.Function.Arguments == "" {
+		toolCall.Function.Arguments = delta.Arguments
+	}
+	return toolCall
 }
 
 func (i *ResponseInbound) handleToolCalls(toolCalls []model.ToolCall) [][]byte {

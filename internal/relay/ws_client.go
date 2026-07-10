@@ -447,17 +447,19 @@ func runWSRelay(ctx context.Context, req *relayRequest, group *dbmodel.Group) ws
 	relayCtx := ctx
 	if replayExact {
 		budget := 15 * time.Second
-		if deadline, ok := ctx.Deadline(); ok {
-			if remaining := time.Until(deadline); remaining > 0 && remaining < budget {
-				budget = remaining
+		// The recovery budget only bounds the time to the first downstream write.
+		// Once the client has started receiving events, cancelling here would cut
+		// off a live stream mid-turn and leave the client without a terminal event.
+		var cancel context.CancelCauseFunc
+		relayCtx, cancel = context.WithCancelCause(ctx)
+		defer cancel(nil)
+		watchdog := time.AfterFunc(budget, func() {
+			if !req.streamWriter.Written() {
+				cancel(errLocalRelayBudgetExceeded)
 			}
-		}
-		var cancel context.CancelFunc
-		relayCtx, cancel = context.WithTimeoutCause(ctx, budget, errLocalRelayBudgetExceeded)
-		defer cancel()
-		if req != nil {
-			req.ctx = relayCtx
-		}
+		})
+		defer watchdog.Stop()
+		req.ctx = relayCtx
 	}
 
 	maxSameChannelRetries := 1
@@ -620,8 +622,16 @@ func finalizeWSRelay(ctx context.Context, conn *websocket.Conn, req *relayReques
 	}
 
 	req.metrics.SaveWithChannelStats(ctx, false, result.Err, req.iter.Attempts(), false)
-	if result.Canceled || result.Written {
+	if result.Canceled {
 		return result
+	}
+	// Even when partial events were already forwarded downstream (Written), the
+	// client still needs a terminal frame; staying silent leaves it waiting for
+	// the rest of the turn forever.
+	if result.PublicError == nil && result.Err != nil {
+		if publicErr, ok := classifyWSPublicError(result.Err, 0); ok {
+			result.PublicError = &publicErr
+		}
 	}
 	if result.PublicError != nil {
 		if result.PublicError.ResetConversation {
