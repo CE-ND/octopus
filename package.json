@@ -49,6 +49,9 @@
       "shortcutName": "Octopus"
     },
     "mac": {
+      "identity": null,
+      "hardenedRuntime": false,
+      "artifactName": "${productName}-${version}-mac-${arch}.${ext}",
       "target": [
         "dmg"
       ]

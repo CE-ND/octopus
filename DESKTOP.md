@@ -54,6 +54,39 @@ Artifacts are written to `dist/desktop`. On Windows, `pnpm desktop:dist`
 creates an NSIS installer by default. The installer uses a guided setup flow and
 allows the user to choose the installation directory.
 
+### Unsigned macOS packages
+
+The release workflow builds separate unsigned DMG files for Apple Silicon
+(`arm64`) and Intel (`x64`) Macs. No Apple Developer ID or notarization is
+required, but macOS may block the first launch because the app was downloaded
+from the internet.
+
+To open it for the first time:
+
+1. Try to open Octopus once and dismiss the warning.
+2. Open **System Settings > Privacy & Security**.
+3. Find the message about Octopus and click **Open Anyway**.
+4. Confirm the action with the macOS login password or Touch ID.
+
+The release also includes a `.dmg.sha256` file for each DMG. Verify it before
+installing with:
+
+```bash
+shasum -a 256 -c Octopus-<version>-mac-<arch>.dmg.sha256
+```
+
+Build an unsigned package locally on macOS:
+
+```bash
+# Apple Silicon
+OCTOPUS_DESKTOP_GOOS=darwin OCTOPUS_DESKTOP_GOARCH=arm64 pnpm desktop:prepare
+CSC_IDENTITY_AUTO_DISCOVERY=false pnpm exec electron-builder --mac dmg --arm64 --publish never
+
+# Intel
+OCTOPUS_DESKTOP_GOOS=darwin OCTOPUS_DESKTOP_GOARCH=amd64 pnpm desktop:prepare
+CSC_IDENTITY_AUTO_DISCOVERY=false pnpm exec electron-builder --mac dmg --x64 --publish never
+```
+
 Create the custom Octopus setup UI:
 
 ```bash
@@ -90,6 +123,10 @@ pnpm desktop:dist
   the normal backend configuration name.
 - `OCTOPUS_DESKTOP_SKIP_FRONTEND=1`: reuse an existing `web/out` build.
 - `OCTOPUS_DESKTOP_SKIP_INSTALL=1`: skip `pnpm install` inside `web`.
+- `OCTOPUS_DESKTOP_GOOS=darwin`: override the Go backend target OS during
+  desktop packaging.
+- `OCTOPUS_DESKTOP_GOARCH=arm64`: override the Go backend target architecture
+  during desktop packaging. Use `amd64` for an Intel Mac package.
 - `OCTOPUS_DESKTOP_DATA_DIR=C:\\path\\to\\data`: override the desktop data
   directory.
 
