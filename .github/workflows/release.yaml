@@ -125,7 +125,6 @@ jobs:
 
   desktop-macos:
     name: desktop-macos-${{ matrix.electron_arch }}
-    needs: release
     runs-on: macos-latest
     strategy:
       fail-fast: false
