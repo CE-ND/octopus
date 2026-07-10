@@ -167,10 +167,17 @@ jobs:
           OCTOPUS_DESKTOP_GOARCH: ${{ matrix.goarch }}
         run: pnpm desktop:prepare
 
-      - name: Build unsigned DMG
+      - name: Build ad-hoc signed DMG
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         run: pnpm exec electron-builder --mac dmg --${{ matrix.electron_arch }} --publish never
+
+      - name: Verify app signature
+        run: |
+          app_path=$(find dist/desktop -maxdepth 2 -name 'Octopus.app' -type d -print -quit)
+          test -n "$app_path"
+          codesign --verify --deep --strict --verbose=2 "$app_path"
+          codesign --display --verbose=2 "$app_path"
 
       - name: Generate checksum
         run: |

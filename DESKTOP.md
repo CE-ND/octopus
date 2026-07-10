@@ -54,12 +54,13 @@ Artifacts are written to `dist/desktop`. On Windows, `pnpm desktop:dist`
 creates an NSIS installer by default. The installer uses a guided setup flow and
 allows the user to choose the installation directory.
 
-### Unsigned macOS packages
+### Ad-hoc signed macOS packages
 
-The release workflow builds separate unsigned DMG files for Apple Silicon
-(`arm64`) and Intel (`x64`) Macs. No Apple Developer ID or notarization is
-required, but macOS may block the first launch because the app was downloaded
-from the internet.
+The release workflow builds separate ad-hoc signed DMG files for Apple Silicon
+(`arm64`) and Intel (`x64`) Macs. Ad-hoc signing protects the integrity of the
+application bundle and does not require an Apple Developer ID or notarization.
+Gatekeeper does not treat it as an identified-developer signature, so macOS may
+still block the first launch because the app was downloaded from the internet.
 
 To open it for the first time:
 
@@ -75,7 +76,7 @@ installing with:
 shasum -a 256 -c Octopus-<version>-mac-<arch>.dmg.sha256
 ```
 
-Build an unsigned package locally on macOS:
+Build an ad-hoc signed package locally on macOS:
 
 ```bash
 # Apple Silicon

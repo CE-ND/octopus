@@ -49,7 +49,7 @@
       "shortcutName": "Octopus"
     },
     "mac": {
-      "identity": null,
+      "identity": "-",
       "hardenedRuntime": false,
       "artifactName": "${productName}-${version}-mac-${arch}.${ext}",
       "target": [
