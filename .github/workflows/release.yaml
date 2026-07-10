@@ -228,7 +228,7 @@ jobs:
 
       - name: Generate checksum
         run: |
-          appimage_file=$(find dist/desktop -maxdepth 1 -name 'Octopus-*-linux-${{ matrix.electron_arch }}.AppImage' -print -quit)
+          appimage_file=$(find dist/desktop -maxdepth 1 -name 'Octopus-*-linux-*.AppImage' -print -quit)
           test -n "$appimage_file"
           sha256sum "$appimage_file" > "${appimage_file}.sha256"
 
