@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 
 const rootDir = path.resolve(__dirname, '..');
+const desktopPackage = JSON.parse(fs.readFileSync(path.join(rootDir, 'package.json'), 'utf8'));
 const webDir = path.join(rootDir, 'web');
 const staticOutDir = path.join(rootDir, 'static', 'out');
 const webOutDir = path.join(webDir, 'out');
@@ -163,7 +164,7 @@ function main() {
   ensureCommand('pnpm', ['--version']);
   ensureCommand('go', ['version']);
 
-  const gitVersion = tryRun('git', ['describe', '--tags', '--abbrev=0'], 'dev');
+  const gitVersion = process.env.OCTOPUS_DESKTOP_VERSION || `v${desktopPackage.version}`;
   console.log(`Preparing Octopus desktop assets (${gitVersion})`);
 
   buildFrontend(gitVersion);

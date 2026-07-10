@@ -128,6 +128,8 @@ pnpm desktop:dist
   desktop packaging.
 - `OCTOPUS_DESKTOP_GOARCH=arm64`: override the Go backend target architecture
   during desktop packaging. Use `amd64` for an Intel Mac package.
+- `OCTOPUS_DESKTOP_VERSION=v0.1.1`: override the version embedded into the
+  desktop frontend and backend. By default it uses the root package version.
 - `OCTOPUS_DESKTOP_DATA_DIR=C:\\path\\to\\data`: override the desktop data
   directory.
 
