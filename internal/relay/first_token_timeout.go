@@ -11,6 +11,23 @@ import (
 	"github.com/bestruirui/octopus/internal/utils/log"
 )
 
+// defaultFirstTokenTimeoutSec bounds the wait for the first upstream token
+// (including the wait for response headers) when the group does not configure
+// 首字超时 (0). Without it a half-dead upstream connection blocks the relay
+// indefinitely with no failover and no relay log. Generous so reasoning
+// upstreams that queue before sending headers still fit. Var so tests can
+// shrink it.
+var defaultFirstTokenTimeoutSec = 180
+
+// effectiveFirstTokenTimeoutSec returns the group-configured 首字超时 when set,
+// otherwise the bottom-line default.
+func (ra *relayAttempt) effectiveFirstTokenTimeoutSec() int {
+	if ra != nil && ra.firstTokenTimeOutSec > 0 {
+		return ra.firstTokenTimeOutSec
+	}
+	return defaultFirstTokenTimeoutSec
+}
+
 type firstTokenBudget struct {
 	ctx     context.Context
 	timer   *time.Timer
@@ -55,7 +72,7 @@ func (ra *relayAttempt) attachFirstTokenBudget(req *http.Request) *http.Request 
 
 	ctx, cancel := context.WithCancelCause(req.Context())
 	budget := &firstTokenBudget{ctx: ctx, cancel: cancel}
-	budget.timer = time.AfterFunc(time.Duration(ra.firstTokenTimeOutSec)*time.Second, func() {
+	budget.timer = time.AfterFunc(time.Duration(ra.effectiveFirstTokenTimeoutSec())*time.Second, func() {
 		budget.mu.Lock()
 		defer budget.mu.Unlock()
 		if budget.stopped {
@@ -69,7 +86,7 @@ func (ra *relayAttempt) attachFirstTokenBudget(req *http.Request) *http.Request 
 
 func (ra *relayAttempt) shouldUseFirstTokenBudget() bool {
 	return ra != nil &&
-		ra.firstTokenTimeOutSec > 0 &&
+		ra.effectiveFirstTokenTimeoutSec() > 0 &&
 		ra.internalRequest != nil &&
 		ra.internalRequest.Stream != nil &&
 		*ra.internalRequest.Stream
@@ -90,10 +107,10 @@ func (ra *relayAttempt) closeFirstTokenBudget() {
 }
 
 func (ra *relayAttempt) firstTokenTimeoutError() error {
-	if ra == nil || ra.firstTokenTimeOutSec <= 0 {
+	if ra == nil {
 		return errFirstTokenTimeout
 	}
-	return fmt.Errorf("%w (%ds)", errFirstTokenTimeout, ra.firstTokenTimeOutSec)
+	return fmt.Errorf("%w (%ds)", errFirstTokenTimeout, ra.effectiveFirstTokenTimeoutSec())
 }
 
 func (ra *relayAttempt) firstTokenTimeoutIfNeeded(ctx context.Context, err error) error {
@@ -103,8 +120,8 @@ func (ra *relayAttempt) firstTokenTimeoutIfNeeded(ctx context.Context, err error
 	}
 	if isFirstTokenTimeout(ctx, err) || isFirstTokenTimeout(ctx, contextError(ctx)) ||
 		isFirstTokenTimeout(budgetCtx, err) || isFirstTokenTimeout(budgetCtx, contextError(budgetCtx)) {
-		if ra != nil && ra.firstTokenTimeOutSec > 0 {
-			log.Warnf("first token timeout (%ds), switching channel", ra.firstTokenTimeOutSec)
+		if ra != nil {
+			log.Warnf("first token timeout (%ds), switching channel", ra.effectiveFirstTokenTimeoutSec())
 		}
 		return ra.firstTokenTimeoutError()
 	}

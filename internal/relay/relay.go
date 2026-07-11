@@ -778,8 +778,8 @@ func (ra *relayAttempt) handleWSStreamResponseV2(ctx context.Context, reader *ws
 
 	// Determine first token timeout
 	var firstTokenTimeout time.Duration
-	if ra.firstTokenTimeOutSec > 0 && ra.firstTokenBudget == nil {
-		firstTokenTimeout = time.Duration(ra.firstTokenTimeOutSec) * time.Second
+	if ra.firstTokenBudget == nil {
+		firstTokenTimeout = time.Duration(ra.effectiveFirstTokenTimeoutSec()) * time.Second
 	}
 
 	// Create StreamProcessor
@@ -1138,8 +1138,8 @@ func (ra *relayAttempt) handleStreamResponseV2(ctx context.Context, response *ht
 
 	// Determine first token timeout
 	var firstTokenTimeout time.Duration
-	if ra.firstTokenTimeOutSec > 0 && ra.firstTokenBudget == nil {
-		firstTokenTimeout = time.Duration(ra.firstTokenTimeOutSec) * time.Second
+	if ra.firstTokenBudget == nil {
+		firstTokenTimeout = time.Duration(ra.effectiveFirstTokenTimeoutSec()) * time.Second
 	}
 
 	// Create StreamProcessor
@@ -1196,8 +1196,8 @@ func (ra *relayAttempt) handleStreamResponsePassthroughV2(ctx context.Context, r
 
 	// Determine first token timeout
 	var firstTokenTimeout time.Duration
-	if ra.firstTokenTimeOutSec > 0 && ra.firstTokenBudget == nil {
-		firstTokenTimeout = time.Duration(ra.firstTokenTimeOutSec) * time.Second
+	if ra.firstTokenBudget == nil {
+		firstTokenTimeout = time.Duration(ra.effectiveFirstTokenTimeoutSec()) * time.Second
 	}
 
 	// Buffer for raw stream (for metrics collection)

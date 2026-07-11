@@ -188,10 +188,22 @@ func (ra *relayAttempt) handleWSPassthroughStream(ctx context.Context, pc *poole
 	stats := &wsPassthroughStats{}
 	firstEvent := true
 	dropDownstream := false
-	readCtx := ctx
+	// Bound the wait for the first upstream event: a half-dead pooled
+	// connection otherwise blocks Read until the downstream connection cap.
+	firstEventCtx, cancelFirstEvent := context.WithCancelCause(ctx)
+	defer cancelFirstEvent(nil)
+	firstEventTimer := time.AfterFunc(time.Duration(ra.effectiveFirstTokenTimeoutSec())*time.Second, func() {
+		cancelFirstEvent(errFirstTokenTimeout)
+	})
+	defer firstEventTimer.Stop()
+	readCtx := firstEventCtx
 	for {
 		msgType, data, err := pc.conn.Read(readCtx)
 		if err != nil {
+			if firstEvent && isFirstTokenTimeout(readCtx, err) {
+				log.Warnf("first token timeout (%ds) on upstream ws passthrough, switching channel", ra.effectiveFirstTokenTimeoutSec())
+				return stats, ra.firstTokenTimeoutError()
+			}
 			closeStatus := websocket.CloseStatus(err)
 			if closeStatus == websocket.StatusNormalClosure || closeStatus == websocket.StatusGoingAway {
 				if firstEvent {
@@ -203,6 +215,12 @@ func (ra *relayAttempt) handleWSPassthroughStream(ctx context.Context, pc *poole
 		}
 		if msgType != websocket.MessageText {
 			continue
+		}
+		if firstEvent {
+			// First upstream event arrived: disarm the watchdog and read the
+			// rest of the stream under the relay context only.
+			firstEventTimer.Stop()
+			readCtx = ctx
 		}
 		observeWSPassthroughEvent(stats, data)
 		if stats.Error != nil {

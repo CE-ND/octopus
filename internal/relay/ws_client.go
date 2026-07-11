@@ -151,18 +151,24 @@ func processWSResponseCreate(
 		}
 	}
 
-	// Check for generate: false (warmup). Codex-style clients use this as a
-	// prewarm probe and do not expect a synthetic completed response turn.
-	// Acknowledging it locally caused some clients to wait forever for a normal
-	// response lifecycle. Prime the upstream pool best-effort, then stay silent.
+	// Check for generate: false (warmup). Codex-style clients send this as a
+	// prewarm probe and wait for the probe's response lifecycle before issuing
+	// the real turn — staying silent stalls the session until the client's
+	// transport timeout (Codex 0.144: 5 minutes, then HTTP fallback). Answer
+	// immediately with a synthetic empty response (created + completed), and
+	// prime the upstream pool off the message loop: dialing every channel can
+	// take tens of seconds and must not delay the real response.create.
 	if genRaw, ok := reqBody["generate"]; ok {
 		var generate bool
 		if json.Unmarshal(genRaw, &generate) == nil && !generate {
-			if err := bestEffortWarmupUpstreamWS(ctx, apiKeyID, supportedModels, reqBody); err != nil {
-				log.Warnf("ws warmup failed (apikey=%d): %v", apiKeyID, err)
-			} else {
-				log.Debugf("ws warmup ready (apikey=%d)", apiKeyID)
-			}
+			go func() {
+				if err := bestEffortWarmupUpstreamWS(ctx, apiKeyID, supportedModels, reqBody); err != nil {
+					log.Warnf("ws warmup failed (apikey=%d): %v", apiKeyID, err)
+				} else {
+					log.Debugf("ws warmup ready (apikey=%d)", apiKeyID)
+				}
+			}()
+			writeWSWarmupAck(ctx, conn)
 			return conversationState
 		}
 		delete(reqBody, "generate")
@@ -685,6 +691,44 @@ func wsRequestExplicitlyRequestsContinuation(reqBody map[string]json.RawMessage)
 		return true
 	}
 	return false
+}
+
+// writeWSWarmupAck answers a generate:false prewarm probe with a synthetic
+// empty response lifecycle. The terminal response.completed event matters:
+// clients that gate the real turn on the probe finishing (Codex) otherwise
+// wait until their transport timeout.
+func writeWSWarmupAck(ctx context.Context, conn *websocket.Conn) {
+	responseID := fmt.Sprintf("resp_warmup_%d", time.Now().UnixNano())
+	created := map[string]interface{}{
+		"type": "response.created",
+		"response": map[string]interface{}{
+			"object": "response",
+			"id":     responseID,
+			"status": "in_progress",
+			"output": []interface{}{},
+		},
+	}
+	completed := map[string]interface{}{
+		"type": "response.completed",
+		"response": map[string]interface{}{
+			"object": "response",
+			"id":     responseID,
+			"status": "completed",
+			"output": []interface{}{},
+			"usage": map[string]interface{}{
+				"input_tokens":  0,
+				"output_tokens": 0,
+				"total_tokens":  0,
+			},
+		},
+	}
+	if err := writeWSEvent(ctx, conn, created); err != nil {
+		log.Debugf("ws warmup ack write failed: %v", err)
+		return
+	}
+	if err := writeWSEvent(ctx, conn, completed); err != nil {
+		log.Debugf("ws warmup ack write failed: %v", err)
+	}
 }
 
 func writeWSError(ctx context.Context, conn *websocket.Conn, status int, code, message string) {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -101,6 +102,64 @@ func TestBestEffortWarmupUpstreamWSPrimesPoolAndSticky(t *testing.T) {
 	releaseOnce.Do(func() { close(releaseCh) })
 	waitForWarmupConnectionClosed(t, closedCh)
 	wsUpstreamPool.Remove(pc.poolKey)
+}
+
+// The generate:false prewarm probe must be answered with a synthetic
+// created→completed lifecycle; a silent gateway stalls Codex until its
+// transport timeout.
+func TestWriteWSWarmupAckEmitsCreatedThenCompleted(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.CloseNow()
+		writeWSWarmupAck(r.Context(), conn)
+	}))
+	defer server.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http"), nil)
+	if err != nil {
+		t.Fatalf("ws dial failed: %v", err)
+	}
+	defer conn.CloseNow()
+
+	var events []struct {
+		Type     string `json:"type"`
+		Response struct {
+			ID     string `json:"id"`
+			Status string `json:"status"`
+		} `json:"response"`
+	}
+	for i := 0; i < 2; i++ {
+		_, data, err := conn.Read(ctx)
+		if err != nil {
+			t.Fatalf("reading warmup ack frame %d failed: %v", i, err)
+		}
+		var event struct {
+			Type     string `json:"type"`
+			Response struct {
+				ID     string `json:"id"`
+				Status string `json:"status"`
+			} `json:"response"`
+		}
+		if err := json.Unmarshal(data, &event); err != nil {
+			t.Fatalf("invalid warmup ack frame %d: %v (%s)", i, err, data)
+		}
+		events = append(events, event)
+	}
+
+	if events[0].Type != "response.created" || events[0].Response.Status != "in_progress" {
+		t.Fatalf("expected response.created(in_progress) first, got %#v", events[0])
+	}
+	if events[1].Type != "response.completed" || events[1].Response.Status != "completed" {
+		t.Fatalf("expected response.completed(completed) second, got %#v", events[1])
+	}
+	if events[0].Response.ID == "" || events[0].Response.ID != events[1].Response.ID {
+		t.Fatalf("expected matching response ids, got %q and %q", events[0].Response.ID, events[1].Response.ID)
+	}
 }
 
 func waitForWarmupAccepted(t *testing.T, accepted <-chan struct{}) {
