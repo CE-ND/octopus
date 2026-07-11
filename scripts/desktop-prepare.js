@@ -3,12 +3,25 @@ const fs = require('fs');
 const path = require('path');
 
 const rootDir = path.resolve(__dirname, '..');
+const desktopPackage = JSON.parse(fs.readFileSync(path.join(rootDir, 'package.json'), 'utf8'));
 const webDir = path.join(rootDir, 'web');
 const staticOutDir = path.join(rootDir, 'static', 'out');
 const webOutDir = path.join(webDir, 'out');
 const backendDir = path.join(rootDir, 'build', 'desktop', 'backend');
 const isWindows = process.platform === 'win32';
-const backendName = isWindows ? 'octopus.exe' : 'octopus';
+const goosByPlatform = {
+  win32: 'windows',
+  darwin: 'darwin',
+  linux: 'linux',
+};
+const goarchByNodeArch = {
+  x64: 'amd64',
+  arm64: 'arm64',
+  ia32: '386',
+};
+const targetGoos = process.env.OCTOPUS_DESKTOP_GOOS || goosByPlatform[process.platform];
+const targetGoarch = process.env.OCTOPUS_DESKTOP_GOARCH || goarchByNodeArch[process.arch];
+const backendName = targetGoos === 'windows' ? 'octopus.exe' : 'octopus';
 const backendPath = path.join(backendDir, backendName);
 
 const args = new Set(process.argv.slice(2));
@@ -115,6 +128,10 @@ function buildFrontend(gitVersion) {
 }
 
 function buildBackend(gitVersion) {
+  if (!targetGoos || !targetGoarch) {
+    throw new Error(`unsupported desktop target: platform=${process.platform}, arch=${process.arch}`);
+  }
+
   fs.mkdirSync(backendDir, { recursive: true });
 
   const buildTime = new Date().toISOString();
@@ -128,9 +145,16 @@ function buildBackend(gitVersion) {
     '-w',
   ].join(' ');
 
-  run('go', ['build', '-o', backendPath, '-ldflags', ldflags, '-tags=jsoniter', './']);
+  console.log(`Building desktop backend for ${targetGoos}/${targetGoarch}`);
+  run('go', ['build', '-o', backendPath, '-ldflags', ldflags, '-tags=jsoniter', './'], {
+    env: {
+      CGO_ENABLED: '0',
+      GOOS: targetGoos,
+      GOARCH: targetGoarch,
+    },
+  });
 
-  if (!isWindows) {
+  if (targetGoos !== 'windows') {
     fs.chmodSync(backendPath, 0o755);
   }
 }
@@ -140,7 +164,7 @@ function main() {
   ensureCommand('pnpm', ['--version']);
   ensureCommand('go', ['version']);
 
-  const gitVersion = tryRun('git', ['describe', '--tags', '--abbrev=0'], 'dev');
+  const gitVersion = process.env.OCTOPUS_DESKTOP_VERSION || `v${desktopPackage.version}`;
   console.log(`Preparing Octopus desktop assets (${gitVersion})`);
 
   buildFrontend(gitVersion);

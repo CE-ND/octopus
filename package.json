@@ -1,6 +1,6 @@
 {
   "name": "octopus-desktop",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Desktop wrapper for Octopus",
   "main": "desktop/main.js",
@@ -37,6 +37,7 @@
     ],
     "win": {
       "icon": "desktop/assets/icon.ico",
+      "artifactName": "${productName}-${version}-windows-${arch}-setup.${ext}",
       "target": [
         "nsis"
       ]
@@ -49,12 +50,17 @@
       "shortcutName": "Octopus"
     },
     "mac": {
+      "identity": "-",
+      "sign": "scripts/desktop-mac-sign.js",
+      "hardenedRuntime": false,
+      "artifactName": "${productName}-${version}-mac-${arch}.${ext}",
       "target": [
         "dmg"
       ]
     },
     "linux": {
       "icon": "desktop/assets/icon.png",
+      "artifactName": "${productName}-${version}-linux-${arch}.${ext}",
       "target": [
         "AppImage"
       ]
