@@ -91,6 +91,7 @@ type relayRequest struct {
 	metrics         *RelayMetrics
 	apiKeyID        int
 	requestModel    string
+	routingKey      string
 	groupID         int
 	groupSessionTTL int
 	iter            *balancer.Iterator

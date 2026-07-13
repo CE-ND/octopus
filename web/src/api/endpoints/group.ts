@@ -43,6 +43,16 @@ export interface Group {
     items?: GroupItem[];
 }
 
+export interface CodexSessionRoute {
+    session_id: string;
+    title: string;
+    cwd: string;
+    updated_at: number;
+    current_model: string;
+    group_id: number;
+    group_name: string;
+}
+
 /**
  * 预设中的渠道-模型条目（JSON 快照内容）
  */
@@ -179,6 +189,47 @@ export function useGroupList() {
             return apiClient.get<Group[]>('/api/v1/group/list');
         },
         refetchInterval: 30000,
+    });
+}
+
+export function useCodexSessionRoutes(enabled = true) {
+    return useQuery({
+        queryKey: ['groups', 'codex-session-routes'],
+        queryFn: () => apiClient.get<CodexSessionRoute[]>('/api/v1/group/codex-session/list'),
+        staleTime: 10_000,
+        enabled,
+        refetchInterval: enabled ? 5_000 : false,
+    });
+}
+
+export function useUpdateCodexSessionRoute() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: ({ sessionID, requestModel, groupID }: { sessionID: string; requestModel: string; groupID: number }) =>
+            apiClient.post<string>('/api/v1/group/codex-session/route', {
+                session_id: sessionID,
+                request_model: requestModel,
+                group_id: groupID,
+            }),
+        onMutate: async ({ sessionID, requestModel, groupID }) => {
+            await queryClient.cancelQueries({ queryKey: ['groups', 'codex-session-routes'] });
+            const previous = queryClient.getQueryData<CodexSessionRoute[]>(['groups', 'codex-session-routes']);
+            const groups = queryClient.getQueryData<Group[]>(['groups', 'list']);
+            const groupName = groups?.find((group) => group.id === groupID)?.name ?? '';
+            queryClient.setQueryData<CodexSessionRoute[]>(['groups', 'codex-session-routes'], (current) =>
+                current?.map((session) => session.session_id === sessionID && session.current_model === requestModel
+                    ? { ...session, group_id: groupID, group_name: groupName }
+                    : session),
+            );
+            return { previous };
+        },
+        onError: (error, _variables, context) => {
+            queryClient.setQueryData(['groups', 'codex-session-routes'], context?.previous);
+            logger.error('Codex session route update failed:', error);
+        },
+        onSettled: () => {
+            queryClient.invalidateQueries({ queryKey: ['groups', 'codex-session-routes'] });
+        },
     });
 }
 
@@ -536,4 +587,3 @@ export function useToggleGroupPin() {
         onError: (error) => logger.error('置顶切换失败:', error),
     });
 }
-

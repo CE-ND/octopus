@@ -461,6 +461,22 @@
         }
     },
     "group": {
+        "codexRouting": {
+            "title": "Codex session routing",
+            "summary": "Override a group for a specific session and model while other models remain automatic.",
+            "manage": "Manage sessions",
+            "dialogTitle": "Codex session routing",
+            "description": "The selected group only overrides the session's current model. Switching to another model continues to use automatic routing unless that model also has a rule.",
+            "loading": "Loading Codex sessions...",
+            "unavailable": "Codex session data is unavailable. Make sure this Octopus instance is running on the same computer as Codex.",
+            "empty": "No active Codex sessions were found.",
+            "untitled": "Untitled session",
+            "unknownWorkspace": "Unknown workspace",
+            "currentModel": "Current model:",
+            "modelUnknown": "Unknown",
+            "selectGroup": "Select group",
+            "automatic": "Automatic (match model name)"
+        },
         "toast": {
             "created": "Created successfully",
             "createFailed": "Create failed",

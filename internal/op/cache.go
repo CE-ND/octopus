@@ -23,6 +23,9 @@ func InitCache() error {
 	if err := groupRefreshCache(ctx); err != nil {
 		return fmt.Errorf("group refresh cache error: %v", err)
 	}
+	if err := codexSessionRouteRefreshCache(ctx); err != nil {
+		return fmt.Errorf("codex session route refresh cache error: %v", err)
+	}
 	if err := apiKeyRefreshCache(ctx); err != nil {
 		return fmt.Errorf("api key refresh cache error: %v", err)
 	}

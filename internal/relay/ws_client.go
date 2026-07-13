@@ -120,6 +120,7 @@ func processWSResponseCreate(
 	// Remove WS-only fields
 	delete(reqBody, "type")
 	requestModel := strings.TrimSpace(extractWSRequestModel(reqBody))
+	sessionID := codexSessionIDFromRaw(reqBody)
 	allowStoredRestore := wsRequestExplicitlyRequestsContinuation(reqBody)
 	requestedPreviousResponseID := ""
 	if raw, ok := reqBody["previous_response_id"]; ok && len(raw) > 0 {
@@ -141,7 +142,7 @@ func processWSResponseCreate(
 	rewriteWSPreviousResponseID(reqBody, conversationState)
 	preferredSticky := wsConversationStateToSticky(conversationState)
 	if preferredSticky == nil && requestedPreviousResponseID != "" {
-		if group, err := op.GroupGetEnabledMap(requestModel, ctx); err == nil {
+		if group, _, err := op.CodexSessionRouteResolve(sessionID, requestModel, ctx); err == nil {
 			scope := wsAffinityScope{APIKeyID: apiKeyID, GroupID: group.ID, RequestModel: requestModel, ResponseID: requestedPreviousResponseID}
 			if entry, ok := getWSAffinityStore().Get(ctx, scope); ok {
 				preferredSticky = &balancer.SessionEntry{ChannelID: entry.ChannelID, ChannelKeyID: entry.ChannelKeyID, Timestamp: time.Now()}
@@ -211,22 +212,6 @@ func processWSResponseCreate(
 		}
 	}
 
-	// Check supported models
-	if supportedModels != "" {
-		supportedModelsArray := strings.Split(supportedModels, ",")
-		found := false
-		for _, m := range supportedModelsArray {
-			if m == executionRequest.Model {
-				found = true
-				break
-			}
-		}
-		if !found {
-			writeWSError(ctx, conn, 400, "invalid_request", "model not supported")
-			return conversationState
-		}
-	}
-
 	requestModel = executionRequest.Model
 	req, group, err := newWSRelayRequest(ctx, conn, inAdapter, apiKeyID, requestModel, cloneInternalRequest(executionRequest), originalRequest, preferredSticky, bodyBytes)
 	if err != nil {
@@ -237,6 +222,10 @@ func processWSResponseCreate(
 			code = "no_available_channel"
 		}
 		writeWSError(ctx, conn, status, code, err.Error())
+		return conversationState
+	}
+	if !supportsRequestOrGroup(supportedModels, requestModel, group.Name) {
+		writeWSError(ctx, conn, 400, "invalid_request", "model not supported")
 		return conversationState
 	}
 
@@ -260,7 +249,7 @@ func processWSResponseCreate(
 	if result.ResetConversation && autoRestart && !req.streamWriter.Written() {
 		log.Debugf("ws relay switching to replay (apikey=%d, request_model=%s, failed_previous_response_id=%s, reset_conversation=%t)",
 			apiKeyID, requestModel, failedPreviousResponseID, result.ResetConversation)
-		balancer.DeleteSticky(apiKeyID, requestModel)
+		balancer.DeleteSticky(apiKeyID, req.routingKey)
 		replayedRequest := conversationState.BuildReplayRequest(originalRequest)
 		replayReq, replayGroup, replayErr := newWSRelayRequest(ctx, conn, inAdapter, apiKeyID, requestModel, replayedRequest, originalRequest, preferredSticky, bodyBytes)
 		if replayErr == nil {
@@ -311,30 +300,21 @@ func bestEffortWarmupUpstreamWS(
 	reqBody map[string]json.RawMessage,
 ) error {
 	requestModel := strings.TrimSpace(extractWSRequestModel(reqBody))
+	sessionID := codexSessionIDFromRaw(reqBody)
 	if requestModel == "" {
 		return fmt.Errorf("warmup request missing model")
 	}
 
-	if supportedModels != "" {
-		supportedModelsArray := strings.Split(supportedModels, ",")
-		found := false
-		for _, modelName := range supportedModelsArray {
-			if modelName == requestModel {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return fmt.Errorf("model not supported")
-		}
-	}
-
-	group, err := op.GroupGetEnabledMap(requestModel, ctx)
+	group, _, err := op.CodexSessionRouteResolve(sessionID, requestModel, ctx)
 	if err != nil {
 		return fmt.Errorf("model not found")
 	}
+	if !supportsRequestOrGroup(supportedModels, requestModel, group.Name) {
+		return fmt.Errorf("model not supported")
+	}
 
-	iter := balancer.NewIterator(group, apiKeyID, requestModel)
+	routingKey := sessionRoutingKey(requestModel, sessionID)
+	iter := balancer.NewIterator(group, apiKeyID, routingKey)
 	if iter.Len() == 0 {
 		return fmt.Errorf("no available channel")
 	}
@@ -373,7 +353,7 @@ func bestEffortWarmupUpstreamWS(
 				continue
 			}
 
-			balancer.SetSticky(apiKeyID, requestModel, channel.ID, usedKey.ID)
+			balancer.SetSticky(apiKeyID, routingKey, channel.ID, usedKey.ID)
 			return nil
 		}
 	}
@@ -423,12 +403,14 @@ func newWSRelayRequest(
 	preferredSticky *balancer.SessionEntry,
 	rawBody []byte,
 ) (*relayRequest, *dbmodel.Group, error) {
-	group, err := op.GroupGetEnabledMap(requestModel, ctx)
+	sessionID := codexSessionID(executionRequest)
+	group, _, err := op.CodexSessionRouteResolve(sessionID, requestModel, ctx)
 	if err != nil {
 		return nil, nil, fmt.Errorf("model not found")
 	}
 
-	iter := balancer.NewIteratorWithPreference(group, apiKeyID, requestModel, preferredSticky)
+	routingKey := sessionRoutingKey(requestModel, sessionID)
+	iter := balancer.NewIteratorWithPreference(group, apiKeyID, routingKey, preferredSticky)
 	if iter.Len() == 0 {
 		return nil, nil, fmt.Errorf("no available channel")
 	}
@@ -441,6 +423,7 @@ func newWSRelayRequest(
 		metrics:         NewRelayMetrics(apiKeyID, requestModel, rawBody, metricsRequest),
 		apiKeyID:        apiKeyID,
 		requestModel:    requestModel,
+		routingKey:      routingKey,
 		groupID:         group.ID,
 		groupSessionTTL: group.SessionKeepTime,
 		iter:            iter,
@@ -641,7 +624,7 @@ func finalizeWSRelay(ctx context.Context, conn *websocket.Conn, req *relayReques
 	}
 	if result.PublicError != nil {
 		if result.PublicError.ResetConversation {
-			balancer.DeleteSticky(req.apiKeyID, req.requestModel)
+			balancer.DeleteSticky(req.apiKeyID, req.routingKey)
 		}
 		writeWSError(ctx, conn, result.PublicError.Status, result.PublicError.Code, result.PublicError.Message)
 		return result

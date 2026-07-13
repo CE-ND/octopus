@@ -461,6 +461,22 @@
         }
     },
     "group": {
+        "codexRouting": {
+            "title": "Codex 會話路由",
+            "summary": "只為指定會話的目前模型覆蓋分組，其他模型繼續自動路由。",
+            "manage": "管理會話",
+            "dialogTitle": "Codex 會話路由",
+            "description": "所選分組只覆蓋該會話的目前模型；切換到其他模型後仍會自動路由，除非該模型也單獨設定了規則。",
+            "loading": "正在載入 Codex 會話…",
+            "unavailable": "無法讀取 Codex 會話資料，請確認 Octopus 與 Codex 運行在同一台電腦上。",
+            "empty": "沒有發現活躍的 Codex 會話。",
+            "untitled": "未命名會話",
+            "unknownWorkspace": "未知工作區",
+            "currentModel": "目前模型：",
+            "modelUnknown": "未知",
+            "selectGroup": "選擇分組",
+            "automatic": "自動路由（按模型名稱匹配）"
+        },
         "toast": {
             "created": "建立成功",
             "createFailed": "建立失敗",

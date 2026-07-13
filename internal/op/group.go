@@ -43,9 +43,21 @@ func GroupGetEnabledMap(name string, ctx context.Context) (model.Group, error) {
 	if !ok {
 		return model.Group{}, fmt.Errorf("group not found")
 	}
+	return groupWithEnabledItems(group), nil
+}
+
+func GroupGetEnabled(id int, ctx context.Context) (model.Group, error) {
+	group, ok := groupCache.Get(id)
+	if !ok {
+		return model.Group{}, fmt.Errorf("group not found")
+	}
+	return groupWithEnabledItems(group), nil
+}
+
+func groupWithEnabledItems(group model.Group) model.Group {
 	if len(group.Items) == 0 {
 		group.Items = nil
-		return group, nil
+		return group
 	}
 
 	enabledItems := make([]model.GroupItem, 0, len(group.Items))
@@ -57,7 +69,7 @@ func GroupGetEnabledMap(name string, ctx context.Context) (model.Group, error) {
 		enabledItems = append(enabledItems, item)
 	}
 	group.Items = enabledItems
-	return group, nil
+	return group
 }
 
 func GroupCreate(group *model.Group, ctx context.Context) error {
@@ -252,6 +264,11 @@ func GroupDel(id int, ctx context.Context) error {
 		return fmt.Errorf("failed to delete group presets: %w", err)
 	}
 
+	if err := tx.Where("group_id = ?", id).Delete(&model.CodexSessionRoute{}).Error; err != nil {
+		tx.Rollback()
+		return fmt.Errorf("failed to delete codex session routes: %w", err)
+	}
+
 	if err := tx.Delete(&model.Group{}, id).Error; err != nil {
 		tx.Rollback()
 		return fmt.Errorf("failed to delete group: %w", err)
@@ -263,6 +280,7 @@ func GroupDel(id int, ctx context.Context) error {
 
 	groupCache.Del(id)
 	groupMap.Del(group.Name)
+	codexSessionRouteDeleteByGroup(id)
 	for _, item := range group.Items {
 		resetBalancerStateForChannel(item.ChannelID)
 	}
