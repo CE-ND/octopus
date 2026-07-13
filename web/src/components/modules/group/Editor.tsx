@@ -12,6 +12,7 @@ import { Switch } from '@/components/ui/switch';
 import { Accordion, AccordionContent, AccordionItem } from '@/components/ui/accordion';
 import { cn } from '@/lib/utils';
 import { getModelIcon } from '@/lib/model-icons';
+import { CopyIconButton } from '@/components/common/CopyButton';
 import type { GroupMode } from '@/api/endpoints/group';
 import type { SelectedMember } from './ItemList';
 import { MemberList } from './ItemList';
@@ -149,32 +150,58 @@ function ModelPickerSection({
                                                 .filter(Boolean)
                                                 .join(' · ');
                                             return (
-                                                <button
+                                                <div
                                                     key={memberKey(m)}
-                                                    type="button"
-                                                    onClick={() => !isSelected && onAdd(m)}
-                                                    disabled={isSelected}
                                                     className={cn(
-                                                        'w-full flex items-center justify-between gap-2 rounded-lg border border-border/50 bg-background px-2.5 py-2 text-left transition-colors',
-                                                        isSelected ? 'opacity-60 cursor-not-allowed' : 'hover:bg-muted'
+                                                        'w-full flex items-center gap-1 rounded-lg border border-border/50 bg-background px-1.5 py-1.5 transition-colors',
+                                                        !isSelected && 'hover:bg-muted'
                                                     )}
                                                 >
-                                                    <span className="flex items-center gap-2 min-w-0">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => !isSelected && onAdd(m)}
+                                                        disabled={isSelected}
+                                                        className={cn(
+                                                            'flex min-w-0 flex-1 items-center gap-2 rounded-md px-1 py-0.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                                                            isSelected ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'
+                                                        )}
+                                                    >
                                                         <Avatar size={16} />
                                                         <span className="min-w-0 flex flex-col">
                                                             <span className="text-sm font-medium truncate">{m.name}</span>
                                                             {suffix && <span className="text-[10px] text-muted-foreground truncate">{suffix}</span>}
                                                         </span>
-                                                    </span>
+                                                    </button>
 
-                                                    <span className="shrink-0 text-muted-foreground">
+                                                    <Tooltip side="top" sideOffset={8} align="center">
+                                                        <TooltipTrigger>
+                                                            <CopyIconButton
+                                                                text={m.name}
+                                                                className="shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-background hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                                                copyIconClassName="size-3.5"
+                                                                checkIconClassName="size-3.5 text-primary"
+                                                            />
+                                                        </TooltipTrigger>
+                                                        <TooltipContent>{t('detail.actions.copyName')}</TooltipContent>
+                                                    </Tooltip>
+
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => !isSelected && onAdd(m)}
+                                                        disabled={isSelected}
+                                                        aria-label={isSelected ? m.name : `${t('form.addItem')}: ${m.name}`}
+                                                        className={cn(
+                                                            'shrink-0 rounded-md p-1 text-muted-foreground outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring',
+                                                            isSelected ? 'cursor-not-allowed opacity-60' : 'hover:bg-background hover:text-foreground'
+                                                        )}
+                                                    >
                                                         {isSelected ? (
                                                             <Check className="size-4 text-primary" />
                                                         ) : (
                                                             <Plus className="size-4" />
                                                         )}
-                                                    </span>
-                                                </button>
+                                                    </button>
+                                                </div>
                                             );
                                         })}
                                     </div>

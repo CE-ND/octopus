@@ -15,6 +15,7 @@ import { getModelIcon } from '@/lib/model-icons';
 import type { LLMChannel } from '@/api/endpoints/model';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/animate-ui/components/animate/tooltip';
 import { useTranslations } from 'next-intl';
+import { CopyIconButton } from '@/components/common/CopyButton';
 
 export interface SelectedMember extends LLMChannel {
     id: string;
@@ -57,6 +58,7 @@ function MemberItem({
     layoutScope?: string;
     dnd: MemberItemDnd;
 }) {
+    const t = useTranslations('group');
     const { Avatar: ModelAvatar } = getModelIcon(member.name);
     const [confirmDelete, setConfirmDelete] = useState(false);
     const isDisabled = member.enabled === false;
@@ -123,6 +125,18 @@ function MemberItem({
                     </Tooltip>
                     <span className="text-[10px] text-muted-foreground truncate leading-tight">{sourceLabel}</span>
                 </div>
+
+                <Tooltip side="top" sideOffset={8} align="center">
+                    <TooltipTrigger>
+                        <CopyIconButton
+                            text={member.name}
+                            className="shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            copyIconClassName="size-3.5"
+                            checkIconClassName="size-3.5 text-primary"
+                        />
+                    </TooltipTrigger>
+                    <TooltipContent>{t('detail.actions.copyName')}</TooltipContent>
+                </Tooltip>
 
                 {showWeight && (
                     <input
