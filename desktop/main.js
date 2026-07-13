@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Tray } = require('electron');
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
@@ -13,6 +13,8 @@ let shutdownToken = null;
 let shuttingDown = false;
 let stopBackendPromise = null;
 let backendStartError = null;
+let tray = null;
+let hasShownBackgroundNotice = false;
 
 const isWindows = process.platform === 'win32';
 const appId = 'com.hureru.octopus.desktop';
@@ -34,6 +36,10 @@ function getAppIcon() {
   const iconName = isWindows ? 'icon.ico' : 'icon.png';
   const icon = nativeImage.createFromPath(path.join(__dirname, 'assets', iconName));
   return icon.isEmpty() ? undefined : icon;
+}
+
+function usesChineseLocale() {
+  return app.getLocale().toLowerCase().startsWith('zh');
 }
 
 function getEventWindow(event) {
@@ -251,6 +257,43 @@ async function stopBackend() {
 
 let mainWindow = null;
 
+function showMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    if (!backendBaseUrl) return;
+    createWindow().catch((err) => {
+      dialog.showErrorBox('Octopus failed to reopen', err instanceof Error ? err.message : String(err));
+    });
+    return;
+  }
+
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+}
+
+function createTray() {
+  if (tray) return;
+
+  const icon = getAppIcon();
+  if (!icon) return;
+
+  const isChinese = usesChineseLocale();
+  tray = new Tray(icon);
+  tray.setToolTip('Octopus');
+  tray.setContextMenu(Menu.buildFromTemplate([
+    {
+      label: isChinese ? '打开 Octopus' : 'Open Octopus',
+      click: showMainWindow,
+    },
+    { type: 'separator' },
+    {
+      label: isChinese ? '退出' : 'Quit',
+      click: () => app.quit(),
+    },
+  ]));
+  tray.on('click', showMainWindow);
+}
+
 async function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1440,
@@ -272,6 +315,29 @@ async function createWindow() {
 
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
+  });
+
+  mainWindow.on('close', (event) => {
+    if (shuttingDown) return;
+
+    event.preventDefault();
+    mainWindow.hide();
+
+    if (isWindows && tray && !hasShownBackgroundNotice) {
+      hasShownBackgroundNotice = true;
+      const isChinese = usesChineseLocale();
+      tray.displayBalloon({
+        title: 'Octopus',
+        content: isChinese
+          ? 'Octopus 仍在后台运行，可从系统托盘重新打开或退出。'
+          : 'Octopus is still running in the background. Use the system tray to reopen or quit.',
+        iconType: 'info',
+      });
+    }
+  });
+
+  mainWindow.on('closed', () => {
+    mainWindow = null;
   });
 
   await mainWindow.loadURL(backendBaseUrl);
@@ -304,15 +370,14 @@ if (!hasSingleInstanceLock) {
   app.quit();
 } else {
   app.on('second-instance', () => {
-    if (!mainWindow) return;
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    mainWindow.focus();
+    showMainWindow();
   });
 
   app.whenReady().then(async () => {
     try {
       await startBackend();
       await createWindow();
+      createTray();
     } catch (err) {
       dialog.showErrorBox('Octopus failed to start', err instanceof Error ? err.message : String(err));
       app.quit();
@@ -330,14 +395,12 @@ if (!hasSingleInstanceLock) {
     if (shuttingDown) return;
     event.preventDefault();
     await stopBackend();
+    tray?.destroy();
+    tray = null;
     app.exit(0);
   });
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0 && backendBaseUrl) {
-      createWindow().catch((err) => {
-        dialog.showErrorBox('Octopus failed to reopen', err instanceof Error ? err.message : String(err));
-      });
-    }
+    showMainWindow();
   });
 }

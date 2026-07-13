@@ -30,7 +30,7 @@ function run(command, args, options = {}) {
 function findPayloadInstaller() {
   const entries = fs.existsSync(desktopDistDir) ? fs.readdirSync(desktopDistDir, { withFileTypes: true }) : [];
   const installers = entries
-    .filter((entry) => entry.isFile() && /^Octopus Setup .+\.exe$/i.test(entry.name))
+    .filter((entry) => entry.isFile() && /^Octopus-.+-windows-.+-setup\.exe$/i.test(entry.name))
     .map((entry) => {
       const file = path.join(desktopDistDir, entry.name);
       return { file, mtimeMs: fs.statSync(file).mtimeMs };
