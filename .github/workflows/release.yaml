@@ -153,14 +153,11 @@ jobs:
       - name: Install desktop dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Prepare desktop assets
+      - name: Build Windows installers
         env:
           OCTOPUS_DESKTOP_GOOS: windows
           OCTOPUS_DESKTOP_GOARCH: amd64
-        run: pnpm desktop:prepare
-
-      - name: Build Windows installer
-        run: pnpm exec electron-builder --win nsis --x64 --publish never
+        run: pnpm desktop:dist:custom
 
       - name: Generate checksum
         shell: pwsh
@@ -169,6 +166,10 @@ jobs:
           if (-not $installer) { throw 'Windows installer not found' }
           $hash = (Get-FileHash -Algorithm SHA256 $installer.FullName).Hash.ToLowerInvariant()
           "$hash  $($installer.Name)" | Set-Content "$($installer.FullName).sha256"
+          $customInstaller = Get-ChildItem 'dist/installer-ui/Octopus Custom Setup *.exe' | Select-Object -First 1
+          if (-not $customInstaller) { throw 'Custom Windows installer not found' }
+          $customHash = (Get-FileHash -Algorithm SHA256 $customInstaller.FullName).Hash.ToLowerInvariant()
+          "$customHash  $($customInstaller.Name)" | Set-Content "$($customInstaller.FullName).sha256"
 
       - name: Upload Windows desktop release
         uses: softprops/action-gh-release@v2
@@ -176,6 +177,8 @@ jobs:
           files: |
             dist/desktop/*.exe
             dist/desktop/*.exe.sha256
+            dist/installer-ui/*.exe
+            dist/installer-ui/*.exe.sha256
           prerelease: false
           tag_name: ${{ github.ref_name }}
 
