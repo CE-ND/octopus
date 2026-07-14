@@ -58,9 +58,9 @@ function main() {
       OCTOPUS_DESKTOP_SKIP_INSTALL: process.env.OCTOPUS_DESKTOP_SKIP_INSTALL,
     },
   });
-  run('pnpm', ['exec', 'electron-builder', '--win', 'nsis']);
+  run('pnpm', ['exec', 'electron-builder', '--win', 'nsis', '--publish', 'never']);
   stagePayloadInstaller();
-  run('pnpm', ['exec', 'electron-builder', '--config', 'installer-ui/electron-builder.json', '--win', 'portable']);
+  run('pnpm', ['exec', 'electron-builder', '--config', 'installer-ui/electron-builder.json', '--win', 'portable', '--publish', 'never']);
 }
 
 try {
