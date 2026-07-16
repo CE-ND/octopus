@@ -320,7 +320,7 @@ func (o *ResponseOutbound) TransformStreamEvent(ctx context.Context, eventData [
 		if streamEvent.Response != nil && streamEvent.Response.Error != nil {
 			respErr = &model.ResponseError{
 				Detail: model.ErrorDetail{
-					Code:    fmt.Sprintf("%d", streamEvent.Response.Error.Code),
+					Code:    string(streamEvent.Response.Error.Code),
 					Message: streamEvent.Response.Error.Message,
 				},
 			}
@@ -553,8 +553,33 @@ type ResponsesUsage struct {
 }
 
 type ResponsesError struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
+	Code    ResponsesErrorCode `json:"code"`
+	Message string             `json:"message"`
+}
+
+// ResponsesErrorCode accepts both the string codes used by the OpenAI
+// Responses API and numeric codes returned by some compatible providers.
+type ResponsesErrorCode string
+
+func (c *ResponsesErrorCode) UnmarshalJSON(data []byte) error {
+	if bytes.Equal(data, []byte("null")) {
+		*c = ""
+		return nil
+	}
+
+	var stringCode string
+	if err := json.Unmarshal(data, &stringCode); err == nil {
+		*c = ResponsesErrorCode(stringCode)
+		return nil
+	}
+
+	var numberCode json.Number
+	if err := json.Unmarshal(data, &numberCode); err == nil {
+		*c = ResponsesErrorCode(numberCode.String())
+		return nil
+	}
+
+	return fmt.Errorf("responses error code must be a string or number: %s", string(data))
 }
 
 type ResponsesStreamEvent struct {
@@ -1886,10 +1911,10 @@ func firstNonEmpty(values ...string) string {
 // with O-M1.
 func normalizeResponsesFinishReason(status *string, errDetail *ResponsesError) (*string, *model.ResponseError) {
 	var respErr *model.ResponseError
-	if errDetail != nil && (errDetail.Message != "" || errDetail.Code != 0) {
+	if errDetail != nil && (errDetail.Message != "" || errDetail.Code != "") {
 		respErr = &model.ResponseError{
 			Detail: model.ErrorDetail{
-				Code:    fmt.Sprintf("%d", errDetail.Code),
+				Code:    string(errDetail.Code),
 				Message: errDetail.Message,
 			},
 		}
