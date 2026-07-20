@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -13,6 +14,48 @@ import (
 	"gorm.io/gorm/logger"
 )
 
+func TestInitSQLiteEnablesAndUsesIncrementalAutoVacuum(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "incremental-vacuum.db")
+	gormDB, err := initSQLite(dbPath, &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	if err != nil {
+		t.Fatalf("initSQLite: %v", err)
+	}
+	sqlDB, err := gormDB.DB()
+	if err != nil {
+		t.Fatalf("get sql DB: %v", err)
+	}
+	defer sqlDB.Close()
+
+	if err := gormDB.Exec("CREATE TABLE payloads (id INTEGER PRIMARY KEY, data BLOB)").Error; err != nil {
+		t.Fatalf("create payload table: %v", err)
+	}
+	var mode int
+	if err := gormDB.Raw("PRAGMA auto_vacuum").Row().Scan(&mode); err != nil {
+		t.Fatalf("read auto_vacuum mode: %v", err)
+	}
+	if mode != 2 {
+		t.Fatalf("expected incremental auto_vacuum mode 2, got %d", mode)
+	}
+
+	if err := gormDB.Exec("INSERT INTO payloads(data) VALUES (zeroblob(?))", 4<<20).Error; err != nil {
+		t.Fatalf("insert payload: %v", err)
+	}
+	if err := gormDB.Exec("DELETE FROM payloads").Error; err != nil {
+		t.Fatalf("delete payload: %v", err)
+	}
+
+	previousDB := db
+	db = gormDB
+	defer func() { db = previousDB }()
+	reclaimedPages, err := ReclaimSQLiteSpace(context.Background(), 0)
+	if err != nil {
+		t.Fatalf("ReclaimSQLiteSpace: %v", err)
+	}
+	if reclaimedPages <= 0 {
+		t.Fatalf("expected incremental vacuum to reclaim pages, got %d", reclaimedPages)
+	}
+}
+
 // sqlCaptureLogger 记下 GORM 发出的所有 SQL，用于断言 schema 变更路径上没有
 // 触发 glebarez 的 recreateTable（即 CREATE TABLE relay_logs__temp 那条特征）。
 type sqlCaptureLogger struct {
@@ -20,7 +63,7 @@ type sqlCaptureLogger struct {
 	statements []string
 }
 
-func (l *sqlCaptureLogger) LogMode(logger.LogLevel) logger.Interface { return l }
+func (l *sqlCaptureLogger) LogMode(logger.LogLevel) logger.Interface      { return l }
 func (l *sqlCaptureLogger) Info(context.Context, string, ...interface{})  {}
 func (l *sqlCaptureLogger) Warn(context.Context, string, ...interface{})  {}
 func (l *sqlCaptureLogger) Error(context.Context, string, ...interface{}) {}

@@ -136,9 +136,9 @@ export function SettingRow({ icon: Icon, label, tooltip, children }: {
 }) {
     return (
         <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-                {Icon && <Icon className="h-5 w-5 text-muted-foreground" />}
-                <span className="text-sm font-medium">{label}</span>
+            <div className="flex min-w-0 items-center gap-3">
+                {Icon && <Icon className="h-5 w-5 shrink-0 text-muted-foreground" />}
+                <span className="min-w-0 text-wrap text-sm font-medium">{label}</span>
                 {tooltip && <SettingHelpTip>{tooltip}</SettingHelpTip>}
             </div>
             {children}

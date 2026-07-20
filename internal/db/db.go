@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -145,7 +146,93 @@ func initSQLite(path string, config *gorm.Config) (*gorm.DB, error) {
 		"_pragma=mmap_size(268435456)",
 		"_pragma=temp_store(MEMORY)",
 	}
-	return gorm.Open(sqlite.Open(path+"?"+strings.Join(params, "&")), config)
+	sqliteDB, err := gorm.Open(sqlite.Open(path+"?"+strings.Join(params, "&")), config)
+	if err != nil {
+		return nil, err
+	}
+	sqlDB, err := sqliteDB.DB()
+	if err != nil {
+		return nil, fmt.Errorf("get sqlite connection: %w", err)
+	}
+	// SQLite only accepts switching from NONE to INCREMENTAL before the first
+	// table is created. Existing databases keep their current mode until a
+	// one-time VACUUM rebuild is performed explicitly by the operator.
+	if _, err := sqlDB.Exec("PRAGMA auto_vacuum = INCREMENTAL"); err != nil {
+		return nil, fmt.Errorf("enable sqlite incremental auto-vacuum: %w", err)
+	}
+	var autoVacuumMode int
+	if err := sqlDB.QueryRow("PRAGMA auto_vacuum").Scan(&autoVacuumMode); err != nil {
+		return nil, fmt.Errorf("read sqlite auto-vacuum mode: %w", err)
+	}
+	if autoVacuumMode != 2 {
+		var userTableCount int
+		if err := sqlDB.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").Scan(&userTableCount); err != nil {
+			return nil, fmt.Errorf("inspect sqlite schema before enabling auto-vacuum: %w", err)
+		}
+		if userTableCount == 0 {
+			if _, err := sqlDB.Exec("VACUUM"); err != nil {
+				return nil, fmt.Errorf("initialize sqlite incremental auto-vacuum: %w", err)
+			}
+			if err := sqlDB.QueryRow("PRAGMA auto_vacuum").Scan(&autoVacuumMode); err != nil {
+				return nil, fmt.Errorf("verify sqlite auto-vacuum mode: %w", err)
+			}
+			if autoVacuumMode != 2 {
+				return nil, fmt.Errorf("sqlite incremental auto-vacuum did not activate")
+			}
+		}
+	}
+	return sqliteDB, nil
+}
+
+// ReclaimSQLiteSpace checkpoints pending WAL changes and releases free pages
+// when the database has been initialized with incremental auto-vacuum.
+// maxPages <= 0 asks SQLite to reclaim every currently releasable page.
+func ReclaimSQLiteSpace(ctx context.Context, maxPages int) (int64, error) {
+	if db == nil || db.Dialector == nil || db.Dialector.Name() != "sqlite" {
+		return 0, nil
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		return 0, fmt.Errorf("get sqlite connection for reclaim: %w", err)
+	}
+
+	var busy, logFrames, checkpointedFrames int
+	if err := sqlDB.QueryRowContext(ctx, "PRAGMA wal_checkpoint(PASSIVE)").Scan(&busy, &logFrames, &checkpointedFrames); err != nil {
+		return 0, fmt.Errorf("checkpoint sqlite wal: %w", err)
+	}
+
+	var autoVacuumMode int
+	if err := sqlDB.QueryRowContext(ctx, "PRAGMA auto_vacuum").Scan(&autoVacuumMode); err != nil {
+		return 0, fmt.Errorf("read sqlite auto_vacuum mode: %w", err)
+	}
+	if autoVacuumMode != 2 {
+		return 0, nil
+	}
+
+	var before int64
+	if err := sqlDB.QueryRowContext(ctx, "PRAGMA freelist_count").Scan(&before); err != nil {
+		return 0, fmt.Errorf("read sqlite freelist before reclaim: %w", err)
+	}
+	if before == 0 {
+		return 0, nil
+	}
+
+	statement := "PRAGMA incremental_vacuum"
+	if maxPages > 0 {
+		statement = fmt.Sprintf("PRAGMA incremental_vacuum(%d)", maxPages)
+	}
+	if _, err := sqlDB.ExecContext(ctx, statement); err != nil {
+		return 0, fmt.Errorf("incremental vacuum sqlite database: %w", err)
+	}
+
+	var after int64
+	if err := sqlDB.QueryRowContext(ctx, "PRAGMA freelist_count").Scan(&after); err != nil {
+		return 0, fmt.Errorf("read sqlite freelist after reclaim: %w", err)
+	}
+	if after >= before {
+		return 0, nil
+	}
+	return before - after, nil
 }
 
 func initMySQL(dsn string, config *gorm.Config) (*gorm.DB, error) {

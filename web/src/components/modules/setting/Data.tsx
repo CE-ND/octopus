@@ -2,13 +2,24 @@
 
 import { useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { AlertTriangle, Calendar, Clock, Database, Download, FileArchive, ScrollText, Trash2, Upload } from 'lucide-react';
+import { AlertTriangle, Calendar, Clock, Database, Download, Eraser, FileArchive, FileWarning, ScrollText, Trash2, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+    AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import { toast } from '@/components/common/Toast';
 import { SettingKey, useExportDB, useImportDB } from '@/api/endpoints/setting';
-import { useClearLogs } from '@/api/endpoints/log';
+import { useClearLogContent, useClearLogs } from '@/api/endpoints/log';
 import { SettingCard, SettingRow, SettingSection, useSettingField, useSettingToggle } from './shared';
 
 export function SettingData() {
@@ -16,10 +27,13 @@ export function SettingData() {
 
     // 历史日志与统计持久化
     const logEnabled = useSettingToggle(SettingKey.RelayLogKeepEnabled);
+    const fullLogContent = useSettingToggle(SettingKey.RelayLogFullContentEnabled);
     const badResponsesDump = useSettingToggle(SettingKey.DumpBadResponsesEnabled);
     const keepPeriod = useSettingField(SettingKey.RelayLogKeepPeriod);
     const statsInterval = useSettingField(SettingKey.StatsSaveInterval);
+    const clearLogContent = useClearLogContent();
     const clearLogs = useClearLogs();
+    const logMaintenancePending = clearLogContent.isPending || clearLogs.isPending;
 
     // 备份导出/导入
     const exportDB = useExportDB();
@@ -42,8 +56,15 @@ export function SettingData() {
 
     const handleClearLogs = () => {
         clearLogs.mutate(undefined, {
-            onSuccess: () => toast.success(t('log.clearSuccess')),
-            onError: () => toast.error(t('log.clearFailed')),
+            onSuccess: () => toast.success(t('log.clearAll.success')),
+            onError: () => toast.error(t('log.clearAll.failed')),
+        });
+    };
+
+    const handleClearLogContent = () => {
+        clearLogContent.mutate(undefined, {
+            onSuccess: (result) => toast.success(t('log.clearContent.success', { count: result.rows_affected })),
+            onError: () => toast.error(t('log.clearContent.failed')),
         });
     };
 
@@ -102,6 +123,9 @@ export function SettingData() {
             <SettingRow icon={ScrollText} label={t('log.enabled.label')}>
                 <Switch checked={logEnabled.enabled} onCheckedChange={logEnabled.toggle} />
             </SettingRow>
+            <SettingRow icon={FileWarning} label={t('log.fullContent.label')} tooltip={t('log.fullContent.description')}>
+                <Switch checked={fullLogContent.enabled} onCheckedChange={fullLogContent.toggle} />
+            </SettingRow>
             <SettingRow icon={AlertTriangle} label={t('log.badResponsesDump.label')} tooltip={t('log.badResponsesDump.description')}>
                 <Switch checked={badResponsesDump.enabled} onCheckedChange={badResponsesDump.toggle} />
             </SettingRow>
@@ -116,16 +140,55 @@ export function SettingData() {
                     disabled={!logEnabled.enabled}
                 />
             </SettingRow>
-            <SettingRow icon={Trash2} label={t('log.clear.label')}>
-                <Button
-                    variant="destructive"
-                    size="sm"
-                    onClick={handleClearLogs}
-                    disabled={clearLogs.isPending}
-                    className="rounded-xl"
-                >
-                    {clearLogs.isPending ? t('log.clear.clearing') : t('log.clear.button')}
-                </Button>
+            <SettingRow icon={Eraser} label={t('log.clearContent.label')} tooltip={t('log.clearContent.description')}>
+                <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                        <Button variant="outline" size="sm" disabled={logMaintenancePending} className="rounded-xl">
+                            <Eraser className="size-4" />
+                            {clearLogContent.isPending ? t('log.clearContent.clearing') : t('log.clearContent.button')}
+                        </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                        <AlertDialogHeader>
+                            <AlertDialogTitle>{t('log.clearContent.confirmTitle')}</AlertDialogTitle>
+                            <AlertDialogDescription>{t('log.clearContent.confirmDescription')}</AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                            <AlertDialogCancel>{t('log.clearContent.confirmCancel')}</AlertDialogCancel>
+                            <AlertDialogAction
+                                onClick={handleClearLogContent}
+                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                            >
+                                {t('log.clearContent.confirmAction')}
+                            </AlertDialogAction>
+                        </AlertDialogFooter>
+                    </AlertDialogContent>
+                </AlertDialog>
+            </SettingRow>
+            <SettingRow icon={Trash2} label={t('log.clearAll.label')} tooltip={t('log.clearAll.description')}>
+                <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                        <Button variant="destructive" size="sm" disabled={logMaintenancePending} className="rounded-xl">
+                            <Trash2 className="size-4" />
+                            {clearLogs.isPending ? t('log.clearAll.clearing') : t('log.clearAll.button')}
+                        </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                        <AlertDialogHeader>
+                            <AlertDialogTitle>{t('log.clearAll.confirmTitle')}</AlertDialogTitle>
+                            <AlertDialogDescription>{t('log.clearAll.confirmDescription')}</AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                            <AlertDialogCancel>{t('log.clearAll.confirmCancel')}</AlertDialogCancel>
+                            <AlertDialogAction
+                                onClick={handleClearLogs}
+                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                            >
+                                {t('log.clearAll.confirmAction')}
+                            </AlertDialogAction>
+                        </AlertDialogFooter>
+                    </AlertDialogContent>
+                </AlertDialog>
             </SettingRow>
 
             {/* 备份导出 */}

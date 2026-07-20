@@ -36,6 +36,10 @@ func init() {
 				Handle(clearLog),
 		).
 		AddRoute(
+			router.NewRoute("/content", http.MethodDelete).
+				Handle(clearLogContent),
+		).
+		AddRoute(
 			router.NewRoute("/stream-token", http.MethodGet).
 				Handle(getStreamToken),
 		)
@@ -258,6 +262,15 @@ func clearLog(c *gin.Context) {
 		return
 	}
 	resp.Success(c, nil)
+}
+
+func clearLogContent(c *gin.Context) {
+	result, err := op.RelayLogContentClear(c.Request.Context())
+	if err != nil {
+		resp.Error(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	resp.Success(c, result)
 }
 
 func getStreamToken(c *gin.Context) {

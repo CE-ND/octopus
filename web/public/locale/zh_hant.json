@@ -396,9 +396,13 @@
             "forceRefresh": "強制重新整理"
         },
         "log": {
-            "title": "歷史日誌",
+            "title": "歷史日誌資料",
             "enabled": {
                 "label": "啟用歷史日誌"
+            },
+            "fullContent": {
+                "label": "保存完整日誌正文",
+                "description": "預設僅保存每個請求和回應最多 64 KiB 的預覽。僅在短期排障時開啟；完整正文可能包含敏感資訊，並會快速佔用磁碟空間。"
             },
             "badResponsesDump": {
                 "label": "保存失敗請求",
@@ -408,13 +412,30 @@
                 "label": "日誌保存天數",
                 "placeholder": "請輸入天數"
             },
-            "clear": {
-                "label": "清空歷史日誌",
-                "button": "清空",
-                "clearing": "清空中..."
+            "clearContent": {
+                "label": "請求/回應正文資料",
+                "description": "清理上方歷史日誌中保存的請求正文和回應正文，保留模型、狀態、耗時、Token 用量和費用等日誌記錄。",
+                "button": "清理正文資料",
+                "clearing": "正在清理正文...",
+                "confirmTitle": "清理請求/回應正文資料？",
+                "confirmDescription": "將永久清空所有歷史日誌中的請求正文和回應正文，但保留模型、狀態、耗時、Token 用量和費用等日誌記錄。之後產生的新日誌仍按「保存完整日誌正文」設定保存。此操作無法復原。",
+                "confirmAction": "清理正文資料",
+                "confirmCancel": "保留正文資料",
+                "success": "已清理 {count} 條日誌的請求/回應正文",
+                "failed": "請求/回應正文資料清理失敗"
             },
-            "clearSuccess": "日誌已清空",
-            "clearFailed": "清空失敗"
+            "clearAll": {
+                "label": "全部歷史日誌資料",
+                "description": "刪除完整歷史日誌記錄，包括請求/回應正文、模型、狀態、耗時、Token 用量和費用；不會刪除渠道、分組、API Key 或統計資料。",
+                "button": "清空全部日誌",
+                "clearing": "正在清空全部日誌...",
+                "confirmTitle": "清空全部歷史日誌資料？",
+                "confirmDescription": "將永久刪除所有歷史日誌記錄，包括請求/回應正文、模型、狀態、耗時、Token 用量和費用。渠道、分組、API Key 與統計資料不受影響。此操作無法復原。",
+                "confirmAction": "清空全部日誌",
+                "confirmCancel": "保留歷史日誌",
+                "success": "全部歷史日誌資料已清空",
+                "failed": "全部歷史日誌資料清空失敗"
+            }
         },
         "network": {
             "title": "網路與服務"

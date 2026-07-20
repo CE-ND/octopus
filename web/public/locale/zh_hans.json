@@ -396,9 +396,13 @@
             "forceRefresh": "强制刷新"
         },
         "log": {
-            "title": "历史日志",
+            "title": "历史日志数据",
             "enabled": {
                 "label": "启用历史日志"
+            },
+            "fullContent": {
+                "label": "保存完整日志正文",
+                "description": "默认仅保存每个请求和响应最多 64 KiB 的预览。仅在短期排障时开启；完整正文可能包含敏感信息，并会快速占用磁盘空间。"
             },
             "badResponsesDump": {
                 "label": "保存失败请求",
@@ -408,13 +412,30 @@
                 "label": "日志保存天数",
                 "placeholder": "请输入天数"
             },
-            "clear": {
-                "label": "清空历史日志",
-                "button": "清空",
-                "clearing": "清空中..."
+            "clearContent": {
+                "label": "请求/响应正文数据",
+                "description": "清理上方历史日志中保存的请求正文和响应正文，保留模型、状态、耗时、Token 用量和费用等日志记录。",
+                "button": "清理正文数据",
+                "clearing": "正在清理正文...",
+                "confirmTitle": "清理请求/响应正文数据？",
+                "confirmDescription": "将永久清空所有历史日志中的请求正文和响应正文，但保留模型、状态、耗时、Token 用量和费用等日志记录。之后产生的新日志仍按“保存完整日志正文”设置保存。此操作无法撤销。",
+                "confirmAction": "清理正文数据",
+                "confirmCancel": "保留正文数据",
+                "success": "已清理 {count} 条日志的请求/响应正文",
+                "failed": "请求/响应正文数据清理失败"
             },
-            "clearSuccess": "日志已清空",
-            "clearFailed": "清空失败"
+            "clearAll": {
+                "label": "全部历史日志数据",
+                "description": "删除完整历史日志记录，包括请求/响应正文、模型、状态、耗时、Token 用量和费用；不会删除渠道、分组、API Key 或统计数据。",
+                "button": "清空全部日志",
+                "clearing": "正在清空全部日志...",
+                "confirmTitle": "清空全部历史日志数据？",
+                "confirmDescription": "将永久删除所有历史日志记录，包括请求/响应正文、模型、状态、耗时、Token 用量和费用。渠道、分组、API Key 与统计数据不受影响。此操作无法撤销。",
+                "confirmAction": "清空全部日志",
+                "confirmCancel": "保留历史日志",
+                "success": "全部历史日志数据已清空",
+                "failed": "全部历史日志数据清空失败"
+            }
         },
         "network": {
             "title": "网络与服务"

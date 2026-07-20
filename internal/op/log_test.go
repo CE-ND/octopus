@@ -2,8 +2,10 @@ package op
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	dbpkg "github.com/bestruirui/octopus/internal/db"
 	"github.com/bestruirui/octopus/internal/model"
@@ -53,6 +55,175 @@ func TestRelayLogAddQueuesWithoutDBWrite(t *testing.T) {
 	}
 	if dbCount != 0 {
 		t.Fatalf("RelayLogAdd wrote to DB synchronously, db rows=%d", dbCount)
+	}
+}
+
+func TestRelayLogAddCapsContentUnlessFullContentEnabled(t *testing.T) {
+	ctx := setupSiteOpTestDB(t)
+	if err := settingRefreshCache(ctx); err != nil {
+		t.Fatalf("settingRefreshCache failed: %v", err)
+	}
+	resetRelayLogStateForTest()
+
+	largeContent := strings.Repeat("日志内容", relayLogContentPreviewMaxBytes/3)
+	if err := RelayLogAdd(ctx, model.RelayLog{RequestContent: largeContent, ResponseContent: largeContent}); err != nil {
+		t.Fatalf("RelayLogAdd failed: %v", err)
+	}
+	relayLogPendingLock.Lock()
+	preview := relayLogPending[0]
+	relayLogPendingLock.Unlock()
+	for name, content := range map[string]string{"request": preview.RequestContent, "response": preview.ResponseContent} {
+		if len(content) > relayLogContentPreviewMaxBytes {
+			t.Fatalf("%s preview exceeded limit: got %d bytes", name, len(content))
+		}
+		if !utf8.ValidString(content) {
+			t.Fatalf("%s preview is not valid UTF-8", name)
+		}
+		if !strings.Contains(content, "truncated by Octopus") {
+			t.Fatalf("%s preview is missing truncation marker", name)
+		}
+	}
+
+	if err := SettingSetString(model.SettingKeyRelayLogFullContentEnabled, "true"); err != nil {
+		t.Fatalf("enable full relay log content: %v", err)
+	}
+	resetRelayLogStateForTest()
+	if err := RelayLogAdd(ctx, model.RelayLog{RequestContent: largeContent, ResponseContent: largeContent}); err != nil {
+		t.Fatalf("RelayLogAdd with full content failed: %v", err)
+	}
+	relayLogPendingLock.Lock()
+	full := relayLogPending[0]
+	relayLogPendingLock.Unlock()
+	if full.RequestContent != largeContent || full.ResponseContent != largeContent {
+		t.Fatalf("full-content debug mode unexpectedly truncated the log")
+	}
+}
+
+func TestRelayLogContentClearPreservesMetadataAndClearsQueuedContent(t *testing.T) {
+	ctx := setupSiteOpTestDB(t)
+	if err := settingRefreshCache(ctx); err != nil {
+		t.Fatalf("settingRefreshCache failed: %v", err)
+	}
+	resetRelayLogStateForTest()
+	defer resetRelayLogStateForTest()
+
+	persisted := model.RelayLog{
+		ID:               401,
+		Time:             401,
+		RequestModelName: "gpt-persisted",
+		InputTokens:      123,
+		OutputTokens:     45,
+		RequestContent:   "persisted request",
+		ResponseContent:  "persisted response",
+		Success:          true,
+	}
+	if err := dbpkg.GetDB().WithContext(ctx).Create(&persisted).Error; err != nil {
+		t.Fatalf("create persisted relay log: %v", err)
+	}
+	if err := RelayLogAdd(ctx, model.RelayLog{
+		Time:             402,
+		RequestModelName: "gpt-queued",
+		RequestContent:   "queued request",
+		ResponseContent:  "queued response",
+	}); err != nil {
+		t.Fatalf("queue relay log: %v", err)
+	}
+
+	result, err := RelayLogContentClear(ctx)
+	if err != nil {
+		t.Fatalf("RelayLogContentClear: %v", err)
+	}
+	if result.RowsAffected != 1 {
+		t.Fatalf("expected one persisted row to be cleared, got %d", result.RowsAffected)
+	}
+
+	var got model.RelayLog
+	if err := dbpkg.GetDB().WithContext(ctx).First(&got, persisted.ID).Error; err != nil {
+		t.Fatalf("load persisted relay log: %v", err)
+	}
+	if got.RequestContent != "" || got.ResponseContent != "" {
+		t.Fatalf("persisted content was not cleared: %+v", got)
+	}
+	if got.RequestModelName != persisted.RequestModelName || got.InputTokens != persisted.InputTokens || got.OutputTokens != persisted.OutputTokens {
+		t.Fatalf("relay log metadata changed: %+v", got)
+	}
+
+	relayLogPendingLock.Lock()
+	queued := relayLogPending[0]
+	pendingBytes := relayLogPendingBytes
+	expectedPendingBytes := relayLogBatchApproxBytes(relayLogPending)
+	relayLogPendingLock.Unlock()
+	if queued.RequestContent != "" || queued.ResponseContent != "" {
+		t.Fatalf("queued content was not cleared: %+v", queued)
+	}
+	if pendingBytes != expectedPendingBytes {
+		t.Fatalf("pending byte estimate was not refreshed: got %d want %d", pendingBytes, expectedPendingBytes)
+	}
+
+	relayLogRecentLock.Lock()
+	recent := relayLogRecent[0]
+	relayLogRecentLock.Unlock()
+	if recent.RequestContent != "" || recent.ResponseContent != "" {
+		t.Fatalf("recent content was not cleared: %+v", recent)
+	}
+}
+
+func TestRelayLogTrimLegacyContentClearsOnlyOversizedBodies(t *testing.T) {
+	ctx := setupSiteOpTestDB(t)
+	rows := []model.RelayLog{
+		{ID: 501, Time: 501, RequestContent: "small request", ResponseContent: "small response"},
+		{ID: 502, Time: 502, RequestContent: strings.Repeat("日志", relayLogContentPreviewMaxBytes/3), ResponseContent: "small response"},
+	}
+	if err := dbpkg.GetDB().WithContext(ctx).Create(&rows).Error; err != nil {
+		t.Fatalf("create relay logs: %v", err)
+	}
+
+	trimmed, err := relayLogTrimLegacyContent(ctx)
+	if err != nil {
+		t.Fatalf("relayLogTrimLegacyContent: %v", err)
+	}
+	if trimmed != 1 {
+		t.Fatalf("expected one oversized row to be trimmed, got %d", trimmed)
+	}
+
+	var got []model.RelayLog
+	if err := dbpkg.GetDB().WithContext(ctx).Order("id ASC").Find(&got).Error; err != nil {
+		t.Fatalf("load relay logs: %v", err)
+	}
+	if got[0].RequestContent != "small request" || got[0].ResponseContent != "small response" {
+		t.Fatalf("small log content was modified: %+v", got[0])
+	}
+	if got[1].RequestContent != "" || got[1].ResponseContent != "" {
+		t.Fatalf("oversized legacy content was not cleared: %+v", got[1])
+	}
+}
+
+func TestRelayLogSaveDBTaskTrimsLegacyContentWhenHistoryIsDisabled(t *testing.T) {
+	ctx := setupSiteOpTestDB(t)
+	if err := settingRefreshCache(ctx); err != nil {
+		t.Fatalf("settingRefreshCache failed: %v", err)
+	}
+	if err := SettingSetString(model.SettingKeyRelayLogKeepEnabled, "false"); err != nil {
+		t.Fatalf("disable relay log history: %v", err)
+	}
+	row := model.RelayLog{
+		ID:             503,
+		Time:           503,
+		RequestContent: strings.Repeat("x", relayLogContentPreviewMaxBytes+1),
+	}
+	if err := dbpkg.GetDB().WithContext(ctx).Create(&row).Error; err != nil {
+		t.Fatalf("create oversized relay log: %v", err)
+	}
+
+	if err := RelayLogSaveDBTask(ctx); err != nil {
+		t.Fatalf("RelayLogSaveDBTask: %v", err)
+	}
+	var got model.RelayLog
+	if err := dbpkg.GetDB().WithContext(ctx).First(&got, row.ID).Error; err != nil {
+		t.Fatalf("load relay log: %v", err)
+	}
+	if got.RequestContent != "" {
+		t.Fatalf("legacy content remained while history was disabled")
 	}
 }
 

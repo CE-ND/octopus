@@ -4,10 +4,12 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/bestruirui/octopus/internal/db"
 	"github.com/bestruirui/octopus/internal/model"
@@ -17,14 +19,18 @@ import (
 )
 
 const (
-	relayLogBatchSize        = 200
-	relayLogFlushInterval    = time.Second
-	relayLogQueueSize        = 5000
-	relayLogQueueBytes       = 64 << 20
-	relayLogRecentMaxSize    = 100 // 最近日志缓存，用于实时查询/不落库模式
-	relayLogCleanupBatchSize = 1000
-	relayLogCleanupBatchWait = 30 * time.Millisecond
-	relayLogWriterMaxBatches = 25
+	relayLogBatchSize              = 200
+	relayLogFlushInterval          = time.Second
+	relayLogQueueSize              = 5000
+	relayLogQueueBytes             = 64 << 20
+	relayLogRecentMaxSize          = 100 // 最近日志缓存，用于实时查询/不落库模式
+	relayLogCleanupBatchSize       = 1000
+	relayLogCleanupBatchWait       = 30 * time.Millisecond
+	relayLogWriterMaxBatches       = 25
+	relayLogContentPreviewMaxBytes = 64 << 10
+	relayLogIncrementalVacuumPages = 16_384 // Reclaim at most 64 MiB per scheduled cleanup.
+	relayLogLegacyTrimBatchSize    = 250
+	relayLogLegacyTrimMaxBatches   = 4 // Bound each hourly maintenance run to avoid a long SQLite lock.
 )
 
 var relayLogPending = make([]model.RelayLog, 0, relayLogBatchSize)
@@ -301,6 +307,14 @@ func RelayLogAdd(ctx context.Context, relayLog model.RelayLog) error {
 	if err != nil {
 		return err
 	}
+	fullContentEnabled, err := SettingGetBool(model.SettingKeyRelayLogFullContentEnabled)
+	if err != nil {
+		return err
+	}
+	if !fullContentEnabled {
+		relayLog.RequestContent = relayLogContentPreview(relayLog.RequestContent)
+		relayLog.ResponseContent = relayLogContentPreview(relayLog.ResponseContent)
+	}
 	relayLog.ID = snowflake.GenerateID()
 	notifySubscribers(relayLog)
 	appendRelayLogRecent(relayLog)
@@ -311,6 +325,18 @@ func RelayLogAdd(ctx context.Context, relayLog model.RelayLog) error {
 	enqueueRelayLogPending(relayLog)
 	_ = ctx // kept for API compatibility; DB writes are handled by the background writer.
 	return nil
+}
+
+func relayLogContentPreview(content string) string {
+	if len(content) <= relayLogContentPreviewMaxBytes {
+		return content
+	}
+	suffix := fmt.Sprintf("\n...[truncated by Octopus; original size: %d bytes]", len(content))
+	prefixBytes := relayLogContentPreviewMaxBytes - len(suffix)
+	for prefixBytes > 0 && !utf8.ValidString(content[:prefixBytes]) {
+		prefixBytes--
+	}
+	return content[:prefixBytes] + suffix
 }
 
 func RelayLogSaveDBTask(ctx context.Context) error {
@@ -328,10 +354,27 @@ func RelayLogSaveDBTask(ctx context.Context) error {
 		if err := RelayLogFlushPending(ctx); err != nil {
 			return err
 		}
-		return relayLogCleanup(ctx)
+		if err := relayLogCleanup(ctx); err != nil {
+			return err
+		}
+	} else {
+		trimRelayLogRecent()
 	}
 
-	trimRelayLogRecent()
+	fullContentEnabled, err := SettingGetBool(model.SettingKeyRelayLogFullContentEnabled)
+	if err != nil {
+		return err
+	}
+	if !fullContentEnabled {
+		trimmed, err := relayLogTrimLegacyContent(ctx)
+		if err != nil {
+			return err
+		}
+		if trimmed > 0 {
+			log.Debugw("relay_log.trimmed_legacy_content", "rows", trimmed)
+			reclaimRelayLogStorage(ctx, relayLogIncrementalVacuumPages)
+		}
+	}
 	return nil
 }
 
@@ -399,11 +442,60 @@ func relayLogCleanup(ctx context.Context) error {
 	}
 	if deletedRows > 0 {
 		log.Debugw("relay_log.cleanup", "deleted_rows", deletedRows, "batch_count", batchCount, "duration", time.Since(start).String())
+		reclaimRelayLogStorage(ctx, relayLogIncrementalVacuumPages)
 	}
 	return nil
 }
 
+func reclaimRelayLogStorage(ctx context.Context, maxPages int) {
+	reclaimedPages, err := db.ReclaimSQLiteSpace(ctx, maxPages)
+	if err != nil {
+		log.Warnw("relay_log.reclaim_failed", "error", err.Error())
+		return
+	}
+	if reclaimedPages > 0 {
+		log.Debugw("relay_log.reclaimed", "pages", reclaimedPages, "bytes", reclaimedPages*4096)
+	}
+}
+
+// relayLogTrimLegacyContent removes oversized bodies written by older
+// versions. New writes are capped before reaching this path; the bounded loop
+// keeps upgrades from holding SQLite's single writer connection indefinitely.
+func relayLogTrimLegacyContent(ctx context.Context) (int64, error) {
+	dbConn := db.GetDB().WithContext(ctx)
+	var trimmed int64
+	for batch := 0; batch < relayLogLegacyTrimMaxBatches; batch++ {
+		var ids []int64
+		if err := dbConn.Model(&model.RelayLog{}).
+			Where("length(CAST(request_content AS BLOB)) > ? OR length(CAST(response_content AS BLOB)) > ?", relayLogContentPreviewMaxBytes, relayLogContentPreviewMaxBytes).
+			Order("time ASC").
+			Order("id ASC").
+			Limit(relayLogLegacyTrimBatchSize).
+			Pluck("id", &ids).Error; err != nil {
+			return trimmed, err
+		}
+		if len(ids) == 0 {
+			break
+		}
+		result := dbConn.Model(&model.RelayLog{}).
+			Where("id IN ?", ids).
+			Updates(map[string]any{"request_content": "", "response_content": ""})
+		if result.Error != nil {
+			return trimmed, result.Error
+		}
+		trimmed += result.RowsAffected
+		if len(ids) < relayLogLegacyTrimBatchSize {
+			break
+		}
+	}
+	return trimmed, nil
+}
+
 type RelayLogStatusFilter string
+
+type RelayLogContentClearResult struct {
+	RowsAffected int64 `json:"rows_affected"`
+}
 
 const (
 	RelayLogStatusAll     RelayLogStatusFilter = ""
@@ -1068,6 +1160,77 @@ func RelayLogClear(ctx context.Context) error {
 	}
 	if deletedRows > 0 {
 		log.Debugw("relay_log.clear", "deleted_rows", deletedRows, "batch_count", batchCount, "duration", time.Since(start).String())
+		reclaimRelayLogStorage(ctx, 0)
 	}
 	return nil
+}
+
+func RelayLogContentClear(ctx context.Context) (RelayLogContentClearResult, error) {
+	relayLogFlushLock.Lock()
+	defer relayLogFlushLock.Unlock()
+
+	start := time.Now()
+	rowsAffected := int64(0)
+	batchCount := 0
+	dbConn := db.GetDB().WithContext(ctx)
+	for {
+		select {
+		case <-ctx.Done():
+			return RelayLogContentClearResult{RowsAffected: rowsAffected}, ctx.Err()
+		default:
+		}
+
+		var ids []int64
+		if err := dbConn.Model(&model.RelayLog{}).
+			Where("request_content <> '' OR response_content <> ''").
+			Order("time ASC").
+			Order("id ASC").
+			Limit(relayLogLegacyTrimBatchSize).
+			Pluck("id", &ids).Error; err != nil {
+			return RelayLogContentClearResult{RowsAffected: rowsAffected}, err
+		}
+		if len(ids) == 0 {
+			break
+		}
+		result := dbConn.Model(&model.RelayLog{}).
+			Where("id IN ?", ids).
+			Updates(map[string]any{"request_content": "", "response_content": ""})
+		if result.Error != nil {
+			return RelayLogContentClearResult{RowsAffected: rowsAffected}, result.Error
+		}
+		rowsAffected += result.RowsAffected
+		batchCount++
+		if len(ids) < relayLogLegacyTrimBatchSize {
+			break
+		}
+		if relayLogCleanupBatchWait > 0 {
+			timer := time.NewTimer(relayLogCleanupBatchWait)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return RelayLogContentClearResult{RowsAffected: rowsAffected}, ctx.Err()
+			case <-timer.C:
+			}
+		}
+	}
+
+	relayLogRecentLock.Lock()
+	relayLogPendingLock.Lock()
+	for i := range relayLogPending {
+		relayLogPending[i].RequestContent = ""
+		relayLogPending[i].ResponseContent = ""
+	}
+	relayLogPendingBytes = relayLogBatchApproxBytes(relayLogPending)
+	for i := range relayLogRecent {
+		relayLogRecent[i].RequestContent = ""
+		relayLogRecent[i].ResponseContent = ""
+	}
+	relayLogPendingLock.Unlock()
+	relayLogRecentLock.Unlock()
+
+	if rowsAffected > 0 {
+		log.Debugw("relay_log.clear_content", "rows", rowsAffected, "batch_count", batchCount, "duration", time.Since(start).String())
+		reclaimRelayLogStorage(ctx, 0)
+	}
+	return RelayLogContentClearResult{RowsAffected: rowsAffected}, nil
 }

@@ -20,6 +20,7 @@ export const SettingKey = {
     SiteCheckinInterval: 'site_checkin_interval',
     RelayLogKeepEnabled: 'relay_log_keep_enabled',
     RelayLogKeepPeriod: 'relay_log_keep_period',
+    RelayLogFullContentEnabled: 'relay_log_full_content_enabled',
     DumpBadResponsesEnabled: 'dump_bad_responses_enabled',
     CORSAllowOrigins: 'cors_allow_origins',
     CircuitBreakerThreshold: 'circuit_breaker_threshold',
@@ -247,4 +248,3 @@ export function useImportDB() {
         },
     });
 }
-

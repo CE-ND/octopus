@@ -396,9 +396,13 @@
             "forceRefresh": "Force Refresh"
         },
         "log": {
-            "title": "History Logs",
+            "title": "History Log Data",
             "enabled": {
                 "label": "Enable History Logs"
+            },
+            "fullContent": {
+                "label": "Save Full Log Content",
+                "description": "By default, Octopus stores at most a 64 KiB preview of each request and response. Enable this only for short-term debugging: full content may contain sensitive data and can consume disk space very quickly."
             },
             "badResponsesDump": {
                 "label": "Save Failed Requests",
@@ -408,13 +412,30 @@
                 "label": "Log Retention (days)",
                 "placeholder": "Enter days"
             },
-            "clear": {
-                "label": "Clear History Logs",
-                "button": "Clear",
-                "clearing": "Clearing..."
+            "clearContent": {
+                "label": "Request/Response Content Data",
+                "description": "Clear the saved request and response content from the history logs above while keeping model, status, duration, token usage, cost, and other log records.",
+                "button": "Clear content data",
+                "clearing": "Clearing content...",
+                "confirmTitle": "Clear request/response content data?",
+                "confirmDescription": "This permanently clears request and response content from every history log while keeping model, status, duration, token usage, cost, and other log records. New logs will still follow the Save Full Log Content setting. This action cannot be undone.",
+                "confirmAction": "Clear content data",
+                "confirmCancel": "Keep content data",
+                "success": "Cleared request/response content from {count} logs",
+                "failed": "Failed to clear request/response content data"
             },
-            "clearSuccess": "Logs cleared",
-            "clearFailed": "Failed to clear logs"
+            "clearAll": {
+                "label": "All History Log Data",
+                "description": "Delete complete history log records, including request/response content, model, status, duration, token usage, and cost. Channels, groups, API keys, and statistics are not deleted.",
+                "button": "Clear all logs",
+                "clearing": "Clearing all logs...",
+                "confirmTitle": "Clear all history log data?",
+                "confirmDescription": "This permanently deletes every history log record, including request/response content, model, status, duration, token usage, and cost. Channels, groups, API keys, and statistics are not affected. This action cannot be undone.",
+                "confirmAction": "Clear all logs",
+                "confirmCancel": "Keep history logs",
+                "success": "All history log data cleared",
+                "failed": "Failed to clear all history log data"
+            }
         },
         "network": {
             "title": "Network & Service"

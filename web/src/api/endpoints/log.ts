@@ -239,6 +239,27 @@ export function useClearLogs() {
     });
 }
 
+export interface ClearLogContentResult {
+    rows_affected: number;
+}
+
+export function useClearLogContent() {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: async () => {
+            return apiClient.delete<ClearLogContentResult>('/api/v1/log/content');
+        },
+        onSuccess: () => {
+            logger.log('日志请求/响应正文清理成功');
+            queryClient.invalidateQueries({ queryKey: ['logs'] });
+        },
+        onError: (error) => {
+            logger.error('日志请求/响应正文清理失败:', error);
+        },
+    });
+}
+
 const logsInfiniteQueryKey = (pageSize: number, filters?: UseLogsOptions['filters']) => ['logs', 'infinite', pageSize, logFiltersKey(filters)] as const;
 
 /**
