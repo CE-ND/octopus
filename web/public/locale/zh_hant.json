@@ -415,13 +415,14 @@
             "clearContent": {
                 "label": "請求/回應正文資料",
                 "description": "清理上方歷史日誌中保存的請求正文和回應正文，保留模型、狀態、耗時、Token 用量和費用等日誌記錄。",
-                "button": "清理正文資料",
-                "clearing": "正在清理正文...",
+                "button": "清理正文並釋放空間",
+                "clearing": "正在清理並壓縮...",
                 "confirmTitle": "清理請求/回應正文資料？",
-                "confirmDescription": "將永久清空所有歷史日誌中的請求正文和回應正文，但保留模型、狀態、耗時、Token 用量和費用等日誌記錄。之後產生的新日誌仍按「保存完整日誌正文」設定保存。此操作無法復原。",
-                "confirmAction": "清理正文資料",
+                "confirmDescription": "將永久清空所有歷史日誌中的請求正文和回應正文，但保留模型、狀態、耗時、Token 用量和費用等日誌記錄，並壓縮 SQLite 資料庫以真正釋放磁碟空間。壓縮期間資料庫寫入會短暫停頓，且磁碟需要留有臨時空間。之後產生的新日誌仍按「保存完整日誌正文」設定保存。此操作無法復原。",
+                "confirmAction": "清理正文並釋放空間",
                 "confirmCancel": "保留正文資料",
                 "success": "已清理 {count} 條日誌的請求/回應正文",
+                "successCompacted": "已清理 {count} 條日誌正文，資料庫從 {before} 縮小到 {after}，釋放 {reclaimed}",
                 "failed": "請求/回應正文資料清理失敗"
             },
             "clearAll": {

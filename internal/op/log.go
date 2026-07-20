@@ -494,7 +494,10 @@ func relayLogTrimLegacyContent(ctx context.Context) (int64, error) {
 type RelayLogStatusFilter string
 
 type RelayLogContentClearResult struct {
-	RowsAffected int64 `json:"rows_affected"`
+	RowsAffected        int64 `json:"rows_affected"`
+	DatabaseBytesBefore int64 `json:"database_bytes_before"`
+	DatabaseBytesAfter  int64 `json:"database_bytes_after"`
+	ReclaimedBytes      int64 `json:"reclaimed_bytes"`
 }
 
 const (
@@ -1228,9 +1231,24 @@ func RelayLogContentClear(ctx context.Context) (RelayLogContentClearResult, erro
 	relayLogPendingLock.Unlock()
 	relayLogRecentLock.Unlock()
 
-	if rowsAffected > 0 {
-		log.Debugw("relay_log.clear_content", "rows", rowsAffected, "batch_count", batchCount, "duration", time.Since(start).String())
-		reclaimRelayLogStorage(ctx, 0)
+	compactResult, err := db.CompactSQLite(ctx)
+	result := RelayLogContentClearResult{
+		RowsAffected:        rowsAffected,
+		DatabaseBytesBefore: compactResult.DatabaseBytesBefore,
+		DatabaseBytesAfter:  compactResult.DatabaseBytesAfter,
+		ReclaimedBytes:      compactResult.ReclaimedBytes,
 	}
-	return RelayLogContentClearResult{RowsAffected: rowsAffected}, nil
+	if err != nil {
+		return result, err
+	}
+	log.Debugw(
+		"relay_log.clear_content",
+		"rows", rowsAffected,
+		"batch_count", batchCount,
+		"database_bytes_before", result.DatabaseBytesBefore,
+		"database_bytes_after", result.DatabaseBytesAfter,
+		"reclaimed_bytes", result.ReclaimedBytes,
+		"duration", time.Since(start).String(),
+	)
+	return result, nil
 }

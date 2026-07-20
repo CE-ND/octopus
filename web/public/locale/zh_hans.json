@@ -415,13 +415,14 @@
             "clearContent": {
                 "label": "请求/响应正文数据",
                 "description": "清理上方历史日志中保存的请求正文和响应正文，保留模型、状态、耗时、Token 用量和费用等日志记录。",
-                "button": "清理正文数据",
-                "clearing": "正在清理正文...",
+                "button": "清理正文并释放空间",
+                "clearing": "正在清理并压缩...",
                 "confirmTitle": "清理请求/响应正文数据？",
-                "confirmDescription": "将永久清空所有历史日志中的请求正文和响应正文，但保留模型、状态、耗时、Token 用量和费用等日志记录。之后产生的新日志仍按“保存完整日志正文”设置保存。此操作无法撤销。",
-                "confirmAction": "清理正文数据",
+                "confirmDescription": "将永久清空所有历史日志中的请求正文和响应正文，但保留模型、状态、耗时、Token 用量和费用等日志记录，并压缩 SQLite 数据库以真实释放磁盘空间。压缩期间数据库写入会短暂停顿，且磁盘需要留有临时空间。之后产生的新日志仍按“保存完整日志正文”设置保存。此操作无法撤销。",
+                "confirmAction": "清理正文并释放空间",
                 "confirmCancel": "保留正文数据",
                 "success": "已清理 {count} 条日志的请求/响应正文",
+                "successCompacted": "已清理 {count} 条日志正文，数据库从 {before} 缩小到 {after}，释放 {reclaimed}",
                 "failed": "请求/响应正文数据清理失败"
             },
             "clearAll": {

@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"strings"
 	"time"
@@ -233,6 +234,94 @@ func ReclaimSQLiteSpace(ctx context.Context, maxPages int) (int64, error) {
 		return 0, nil
 	}
 	return before - after, nil
+}
+
+type SQLiteCompactResult struct {
+	DatabaseBytesBefore int64
+	DatabaseBytesAfter  int64
+	ReclaimedBytes      int64
+}
+
+func CompactSQLite(ctx context.Context) (SQLiteCompactResult, error) {
+	result := SQLiteCompactResult{}
+	if db == nil || db.Dialector == nil || db.Dialector.Name() != "sqlite" {
+		return result, nil
+	}
+
+	sqlDB, err := db.DB()
+	if err != nil {
+		return result, fmt.Errorf("get sqlite connection for compaction: %w", err)
+	}
+	conn, err := sqlDB.Conn(ctx)
+	if err != nil {
+		return result, fmt.Errorf("acquire sqlite connection for compaction: %w", err)
+	}
+	defer conn.Close()
+
+	if err := checkpointSQLiteWAL(ctx, conn); err != nil {
+		return result, err
+	}
+	result.DatabaseBytesBefore, err = sqliteDatabaseBytes(ctx, conn)
+	if err != nil {
+		return result, err
+	}
+
+	if _, err := conn.ExecContext(ctx, "PRAGMA auto_vacuum = INCREMENTAL"); err != nil {
+		return result, fmt.Errorf("enable sqlite incremental auto-vacuum before compaction: %w", err)
+	}
+	if _, err := conn.ExecContext(ctx, "VACUUM"); err != nil {
+		return result, fmt.Errorf("compact sqlite database: %w", err)
+	}
+	if err := checkpointSQLiteWAL(ctx, conn); err != nil {
+		return result, err
+	}
+
+	var autoVacuumMode int
+	if err := conn.QueryRowContext(ctx, "PRAGMA auto_vacuum").Scan(&autoVacuumMode); err != nil {
+		return result, fmt.Errorf("verify sqlite auto-vacuum mode after compaction: %w", err)
+	}
+	if autoVacuumMode != 2 {
+		return result, fmt.Errorf("sqlite incremental auto-vacuum did not activate after compaction")
+	}
+
+	var quickCheck string
+	if err := conn.QueryRowContext(ctx, "PRAGMA quick_check").Scan(&quickCheck); err != nil {
+		return result, fmt.Errorf("check sqlite database after compaction: %w", err)
+	}
+	if quickCheck != "ok" {
+		return result, fmt.Errorf("sqlite quick check failed after compaction: %s", quickCheck)
+	}
+
+	result.DatabaseBytesAfter, err = sqliteDatabaseBytes(ctx, conn)
+	if err != nil {
+		return result, err
+	}
+	if result.DatabaseBytesAfter < result.DatabaseBytesBefore {
+		result.ReclaimedBytes = result.DatabaseBytesBefore - result.DatabaseBytesAfter
+	}
+	return result, nil
+}
+
+func checkpointSQLiteWAL(ctx context.Context, conn *sql.Conn) error {
+	var busy, logFrames, checkpointedFrames int
+	if err := conn.QueryRowContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)").Scan(&busy, &logFrames, &checkpointedFrames); err != nil {
+		return fmt.Errorf("checkpoint sqlite wal before compaction: %w", err)
+	}
+	if busy != 0 {
+		return fmt.Errorf("sqlite database is busy; wal checkpoint could not complete")
+	}
+	return nil
+}
+
+func sqliteDatabaseBytes(ctx context.Context, conn *sql.Conn) (int64, error) {
+	var pageCount, pageSize int64
+	if err := conn.QueryRowContext(ctx, "PRAGMA page_count").Scan(&pageCount); err != nil {
+		return 0, fmt.Errorf("read sqlite page count: %w", err)
+	}
+	if err := conn.QueryRowContext(ctx, "PRAGMA page_size").Scan(&pageSize); err != nil {
+		return 0, fmt.Errorf("read sqlite page size: %w", err)
+	}
+	return pageCount * pageSize, nil
 }
 
 func initMySQL(dsn string, config *gorm.Config) (*gorm.DB, error) {

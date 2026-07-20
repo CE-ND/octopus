@@ -1,7 +1,10 @@
 package op
 
 import (
+	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -9,6 +12,8 @@ import (
 
 	dbpkg "github.com/bestruirui/octopus/internal/db"
 	"github.com/bestruirui/octopus/internal/model"
+	"github.com/glebarez/sqlite"
+	"gorm.io/gorm"
 )
 
 func resetRelayLogStateForTest() {
@@ -165,6 +170,104 @@ func TestRelayLogContentClearPreservesMetadataAndClearsQueuedContent(t *testing.
 	relayLogRecentLock.Unlock()
 	if recent.RequestContent != "" || recent.ResponseContent != "" {
 		t.Fatalf("recent content was not cleared: %+v", recent)
+	}
+}
+
+func TestRelayLogContentClearCompactsLegacySQLiteAfterContentWasAlreadyCleared(t *testing.T) {
+	if dbpkg.GetDB() != nil {
+		_ = dbpkg.Close()
+	}
+
+	dbPath := filepath.Join(t.TempDir(), "legacy-octopus.db")
+	legacyDB, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open legacy sqlite database: %v", err)
+	}
+	if err := legacyDB.AutoMigrate(&model.RelayLog{}); err != nil {
+		t.Fatalf("create legacy relay_logs table: %v", err)
+	}
+	var legacyAutoVacuumMode int
+	if err := legacyDB.Raw("PRAGMA auto_vacuum").Scan(&legacyAutoVacuumMode).Error; err != nil {
+		t.Fatalf("read legacy auto-vacuum mode: %v", err)
+	}
+	if legacyAutoVacuumMode != 0 {
+		t.Fatalf("expected legacy auto-vacuum mode 0, got %d", legacyAutoVacuumMode)
+	}
+
+	payload := strings.Repeat("x", 512*1024)
+	rows := make([]model.RelayLog, 6)
+	for index := range rows {
+		rows[index] = model.RelayLog{
+			ID:               int64(900 + index),
+			Time:             int64(900 + index),
+			RequestModelName: "legacy-model",
+			RequestContent:   payload,
+			ResponseContent:  payload,
+		}
+	}
+	if err := legacyDB.CreateInBatches(&rows, 1).Error; err != nil {
+		t.Fatalf("write legacy relay log content: %v", err)
+	}
+	if err := legacyDB.Model(&model.RelayLog{}).
+		Where("request_content <> '' OR response_content <> ''").
+		Updates(map[string]any{"request_content": "", "response_content": ""}).Error; err != nil {
+		t.Fatalf("simulate old logical-only content clear: %v", err)
+	}
+	legacySQLDB, err := legacyDB.DB()
+	if err != nil {
+		t.Fatalf("get legacy sql database: %v", err)
+	}
+	if err := legacySQLDB.Close(); err != nil {
+		t.Fatalf("close legacy sqlite database: %v", err)
+	}
+	beforeInfo, err := os.Stat(dbPath)
+	if err != nil {
+		t.Fatalf("stat legacy database before compaction: %v", err)
+	}
+
+	if err := dbpkg.InitDB("sqlite", dbPath, false); err != nil {
+		t.Fatalf("initialize upgraded sqlite database: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = dbpkg.Close()
+	})
+	resetRelayLogStateForTest()
+	defer resetRelayLogStateForTest()
+
+	result, err := RelayLogContentClear(context.Background())
+	if err != nil {
+		t.Fatalf("clear and compact upgraded relay log content: %v", err)
+	}
+	if result.RowsAffected != 0 {
+		t.Fatalf("expected retry to clear zero rows, got %d", result.RowsAffected)
+	}
+	if result.DatabaseBytesBefore <= result.DatabaseBytesAfter {
+		t.Fatalf("expected database bytes to shrink, before=%d after=%d", result.DatabaseBytesBefore, result.DatabaseBytesAfter)
+	}
+	if result.ReclaimedBytes != result.DatabaseBytesBefore-result.DatabaseBytesAfter {
+		t.Fatalf("unexpected reclaimed bytes: %+v", result)
+	}
+	afterInfo, err := os.Stat(dbPath)
+	if err != nil {
+		t.Fatalf("stat upgraded database after compaction: %v", err)
+	}
+	if afterInfo.Size() >= beforeInfo.Size() {
+		t.Fatalf("database file did not physically shrink, before=%d after=%d", beforeInfo.Size(), afterInfo.Size())
+	}
+
+	var autoVacuumMode int
+	if err := dbpkg.GetDB().Raw("PRAGMA auto_vacuum").Scan(&autoVacuumMode).Error; err != nil {
+		t.Fatalf("read upgraded auto-vacuum mode: %v", err)
+	}
+	if autoVacuumMode != 2 {
+		t.Fatalf("expected incremental auto-vacuum mode 2, got %d", autoVacuumMode)
+	}
+	var quickCheck string
+	if err := dbpkg.GetDB().Raw("PRAGMA quick_check").Scan(&quickCheck).Error; err != nil {
+		t.Fatalf("quick-check upgraded database: %v", err)
+	}
+	if quickCheck != "ok" {
+		t.Fatalf("database quick check failed: %s", quickCheck)
 	}
 }
 

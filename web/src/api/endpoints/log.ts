@@ -241,6 +241,9 @@ export function useClearLogs() {
 
 export interface ClearLogContentResult {
     rows_affected: number;
+    database_bytes_before: number;
+    database_bytes_after: number;
+    reclaimed_bytes: number;
 }
 
 export function useClearLogContent() {

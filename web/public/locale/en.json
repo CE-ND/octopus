@@ -415,13 +415,14 @@
             "clearContent": {
                 "label": "Request/Response Content Data",
                 "description": "Clear the saved request and response content from the history logs above while keeping model, status, duration, token usage, cost, and other log records.",
-                "button": "Clear content data",
-                "clearing": "Clearing content...",
+                "button": "Clear content and free space",
+                "clearing": "Clearing and compacting...",
                 "confirmTitle": "Clear request/response content data?",
-                "confirmDescription": "This permanently clears request and response content from every history log while keeping model, status, duration, token usage, cost, and other log records. New logs will still follow the Save Full Log Content setting. This action cannot be undone.",
-                "confirmAction": "Clear content data",
+                "confirmDescription": "This permanently clears request and response content from every history log while keeping model, status, duration, token usage, cost, and other log records, then compacts the SQLite database to release disk space. Database writes pause briefly during compaction, and temporary free disk space is required. New logs will still follow the Save Full Log Content setting. This action cannot be undone.",
+                "confirmAction": "Clear content and free space",
                 "confirmCancel": "Keep content data",
                 "success": "Cleared request/response content from {count} logs",
+                "successCompacted": "Cleared content from {count} logs; database shrank from {before} to {after}, freeing {reclaimed}",
                 "failed": "Failed to clear request/response content data"
             },
             "clearAll": {

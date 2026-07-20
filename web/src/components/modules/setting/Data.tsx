@@ -22,6 +22,14 @@ import { SettingKey, useExportDB, useImportDB } from '@/api/endpoints/setting';
 import { useClearLogContent, useClearLogs } from '@/api/endpoints/log';
 import { SettingCard, SettingRow, SettingSection, useSettingField, useSettingToggle } from './shared';
 
+function formatBytes(bytes: number) {
+    if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const unitIndex = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+    const value = bytes / (1024 ** unitIndex);
+    return `${new Intl.NumberFormat(undefined, { maximumFractionDigits: unitIndex === 0 ? 0 : 1 }).format(value)} ${units[unitIndex]}`;
+}
+
 export function SettingData() {
     const t = useTranslations('setting');
 
@@ -63,7 +71,14 @@ export function SettingData() {
 
     const handleClearLogContent = () => {
         clearLogContent.mutate(undefined, {
-            onSuccess: (result) => toast.success(t('log.clearContent.success', { count: result.rows_affected })),
+            onSuccess: (result) => toast.success(result.database_bytes_before > 0
+                ? t('log.clearContent.successCompacted', {
+                    count: result.rows_affected,
+                    before: formatBytes(result.database_bytes_before),
+                    after: formatBytes(result.database_bytes_after),
+                    reclaimed: formatBytes(result.reclaimed_bytes),
+                })
+                : t('log.clearContent.success', { count: result.rows_affected })),
             onError: () => toast.error(t('log.clearContent.failed')),
         });
     };
