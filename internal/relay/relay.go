@@ -149,19 +149,26 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 
 	// 请求级上下文
 	req := &relayRequest{
-		c:               c,
-		inAdapter:       inAdapter,
-		internalRequest: internalRequest,
-		metrics:         metrics,
-		apiKeyID:        apiKeyID,
-		requestModel:    requestModel,
-		routingKey:      routingKey,
-		groupID:         group.ID,
-		groupSessionTTL: group.SessionKeepTime,
-		iter:            iter,
-		rawBody:         rawBody,
-		heartbeat:       hb,
+		c:                c,
+		inAdapter:        inAdapter,
+		internalRequest:  internalRequest,
+		metrics:          metrics,
+		apiKeyID:         apiKeyID,
+		requestModel:     requestModel,
+		routingKey:       routingKey,
+		noticeRoutingKey: routingKey,
+		groupID:          group.ID,
+		groupSessionTTL:  group.SessionKeepTime,
+		iter:             iter,
+		rawBody:          rawBody,
+		heartbeat:        hb,
 	}
+	noticeScope := req.circuitNoticeScope()
+	defer func() {
+		if c.Request.Context().Err() != nil {
+			circuitNotices.reset(noticeScope)
+		}
+	}()
 
 	var lastErr error
 	var lastResult attemptResult
@@ -374,7 +381,18 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 		hb.FlushOrError(c, http.StatusBadRequest, "当前请求包含 OpenAI Responses 原生工具，仅支持 OpenAI Responses 通道直通")
 		return
 	}
-	metrics.SaveWithChannelStats(c.Request.Context(), false, lastErr, iter.Attempts(), false)
+	attempts := iter.Attempts()
+	emitLog := circuitNotices.shouldEmit(
+		noticeScope,
+		c.GetHeader("X-Stainless-Retry-Count"),
+		attempts,
+		time.Now(),
+	)
+	logErr := lastErr
+	if isPureCircuitBreak(attempts) && logErr == nil {
+		logErr = errAllChannelsCircuitBreak
+	}
+	metrics.saveWithChannelStats(c.Request.Context(), false, logErr, attempts, false, emitLog)
 
 	// 透传 429/503 状态码和 Retry-After 头，让客户端 SDK 的重试机制接管
 	if isPassthroughStatus(lastResult.StatusCode) {
@@ -400,6 +418,7 @@ func circuitFailureKind(retryEnabled bool, statusCode int) balancer.FailureKind 
 
 // attempt 统一管理一次通道尝试的完整生命周期
 func (ra *relayAttempt) attempt() attemptResult {
+	circuitNotices.reset(ra.circuitNoticeScope())
 	span := ra.iter.StartAttempt(ra.channel.ID, ra.usedKey.ID, ra.channel.Name)
 
 	// 转发请求

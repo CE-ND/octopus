@@ -132,6 +132,10 @@ func (m *RelayMetrics) Save(ctx context.Context, success bool, err error, attemp
 }
 
 func (m *RelayMetrics) SaveWithChannelStats(ctx context.Context, success bool, err error, attempts []model.ChannelAttempt, updateChannelStats bool) {
+	m.saveWithChannelStats(ctx, success, err, attempts, updateChannelStats, true)
+}
+
+func (m *RelayMetrics) saveWithChannelStats(ctx context.Context, success bool, err error, attempts []model.ChannelAttempt, updateChannelStats bool, emitLog bool) {
 	duration := time.Since(m.StartTime)
 
 	globalStats := model.StatsMetrics{
@@ -175,7 +179,7 @@ func (m *RelayMetrics) SaveWithChannelStats(ctx context.Context, success bool, e
 		)
 	}
 
-	if conf.AppConfig.Log.Relay.Summary || !success {
+	if emitLog && (conf.AppConfig.Log.Relay.Summary || !success) {
 		fields := []interface{}{
 			"model", m.RequestModel,
 			"actual_model", m.ActualModel,
@@ -198,7 +202,9 @@ func (m *RelayMetrics) SaveWithChannelStats(ctx context.Context, success bool, e
 		}
 	}
 
-	m.saveLog(ctx, success, err, duration, attempts, channelID, channelName)
+	if emitLog {
+		m.saveLog(ctx, success, err, duration, attempts, channelID, channelName)
+	}
 }
 
 func finalChannel(attempts []model.ChannelAttempt) (int, string) {

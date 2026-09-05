@@ -122,6 +122,12 @@ func ImagesHandler(endpoint string, c *gin.Context) {
 	// 初始化 Metrics（Images 独立，避免 b64_json 内存膨胀）
 	metrics := newImagesRelayMetrics(apiKeyID, requestModel)
 	metrics.RequestContent = buildImagesRequestContentForLog(isMultipart, bc, jsonPayload)
+	noticeScope := circuitNoticeScope{APIKeyID: apiKeyID, GroupID: group.ID, RoutingKey: requestModel}
+	defer func() {
+		if ctx.Err() != nil {
+			circuitNotices.reset(noticeScope)
+		}
+	}()
 
 	// === 早期心跳 ===
 	// 流式：启动早期心跳协程，覆盖前置阶段（连接慢、failover、退避）期间向客户端发 SSE 注释字节
@@ -176,6 +182,7 @@ func ImagesHandler(endpoint string, c *gin.Context) {
 			requestModel, group.Mode, channel.Name, item.ModelName,
 			iter.Index()+1, iter.Len(), iter.IsSticky(), stream)
 
+		circuitNotices.reset(noticeScope)
 		span := iter.StartAttempt(channel.ID, usedKey.ID, channel.Name)
 
 		// 尝试一次转发
@@ -235,7 +242,18 @@ func ImagesHandler(endpoint string, c *gin.Context) {
 	}
 
 	// 所有通道都失败
-	metrics.SaveWithChannelStats(ctx, false, lastErr, iter.Attempts(), false)
+	attempts := iter.Attempts()
+	emitLog := circuitNotices.shouldEmit(
+		noticeScope,
+		c.GetHeader("X-Stainless-Retry-Count"),
+		attempts,
+		time.Now(),
+	)
+	logErr := lastErr
+	if isPureCircuitBreak(attempts) && logErr == nil {
+		logErr = errAllChannelsCircuitBreak
+	}
+	metrics.saveWithChannelStats(ctx, false, logErr, attempts, false, emitLog)
 	hb.FlushOrError(c, http.StatusBadGateway, "all channels failed")
 }
 
@@ -291,6 +309,10 @@ func (m *imagesRelayMetrics) Save(ctx context.Context, success bool, err error, 
 }
 
 func (m *imagesRelayMetrics) SaveWithChannelStats(ctx context.Context, success bool, err error, attempts []model.ChannelAttempt, updateChannelStats bool) {
+	m.saveWithChannelStats(ctx, success, err, attempts, updateChannelStats, true)
+}
+
+func (m *imagesRelayMetrics) saveWithChannelStats(ctx context.Context, success bool, err error, attempts []model.ChannelAttempt, updateChannelStats bool, emitLog bool) {
 	duration := time.Since(m.StartTime)
 
 	globalStats := model.StatsMetrics{
@@ -318,7 +340,7 @@ func (m *imagesRelayMetrics) SaveWithChannelStats(ctx context.Context, success b
 	}
 	op.StatsSiteModelHourlyRecordAttempts(attempts, m.ActualModel)
 
-	if conf.AppConfig.Log.Relay.Summary || !success {
+	if emitLog && (conf.AppConfig.Log.Relay.Summary || !success) {
 		fields := []interface{}{
 			"model", m.RequestModel,
 			"actual_model", m.ActualModel,
@@ -340,7 +362,9 @@ func (m *imagesRelayMetrics) SaveWithChannelStats(ctx context.Context, success b
 		}
 	}
 
-	m.saveLog(ctx, success, err, duration, attempts, channelID, channelName)
+	if emitLog {
+		m.saveLog(ctx, success, err, duration, attempts, channelID, channelName)
+	}
 }
 
 func (m *imagesRelayMetrics) saveLog(ctx context.Context, success bool, err error, duration time.Duration, attempts []model.ChannelAttempt, channelID int, channelName string) {

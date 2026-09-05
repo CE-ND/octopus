@@ -88,6 +88,12 @@ func HandleResponsesCompact(c *gin.Context) {
 
 	metricsReq := &transformerModel.InternalLLMRequest{Model: requestModel, RawRequest: body}
 	metrics := NewRelayMetrics(apiKeyID, requestModel, body, metricsReq)
+	noticeScope := circuitNoticeScope{APIKeyID: apiKeyID, GroupID: group.ID, RoutingKey: requestModel}
+	defer func() {
+		if c.Request.Context().Err() != nil {
+			circuitNotices.reset(noticeScope)
+		}
+	}()
 
 	var lastErr error
 	var lastStatusCode int
@@ -165,6 +171,7 @@ func HandleResponsesCompact(c *gin.Context) {
 				}
 			}
 
+			circuitNotices.reset(noticeScope)
 			statusCode, retryAfter, attemptErr = forwardResponsesCompact(c, metrics, iter, channel, usedKey, body)
 			if attemptErr == nil {
 				success = true
@@ -197,7 +204,18 @@ func HandleResponsesCompact(c *gin.Context) {
 		lastRetryAfter = retryAfter
 	}
 
-	metrics.SaveWithChannelStats(c.Request.Context(), false, lastErr, iter.Attempts(), false)
+	attempts := iter.Attempts()
+	emitLog := circuitNotices.shouldEmit(
+		noticeScope,
+		c.GetHeader("X-Stainless-Retry-Count"),
+		attempts,
+		time.Now(),
+	)
+	logErr := lastErr
+	if isPureCircuitBreak(attempts) && logErr == nil {
+		logErr = errAllChannelsCircuitBreak
+	}
+	metrics.saveWithChannelStats(c.Request.Context(), false, logErr, attempts, false, emitLog)
 	if lastErr == nil && lastStatusCode == 0 {
 		resp.ErrorWithCode(c, http.StatusServiceUnavailable, CodeRelayNoAvailableChannel, "no available channel")
 		return

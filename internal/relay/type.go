@@ -84,17 +84,19 @@ type UpstreamReader interface {
 }
 
 type relayRequest struct {
-	c               *gin.Context
-	ctx             context.Context // used when c is nil (WebSocket mode)
-	inAdapter       model.Inbound
-	internalRequest *model.InternalLLMRequest
-	metrics         *RelayMetrics
-	apiKeyID        int
-	requestModel    string
-	routingKey      string
-	groupID         int
-	groupSessionTTL int
-	iter            *balancer.Iterator
+	c                *gin.Context
+	ctx              context.Context // used when c is nil (WebSocket mode)
+	inAdapter        model.Inbound
+	internalRequest  *model.InternalLLMRequest
+	metrics          *RelayMetrics
+	apiKeyID         int
+	requestModel     string
+	routingKey       string
+	noticeRoutingKey string
+	retryHeader      string
+	groupID          int
+	groupSessionTTL  int
+	iter             *balancer.Iterator
 
 	// rawBody 保存客户端原始请求 body，用于同格式（如 Anthropic→Anthropic）直通转发时
 	// 绕过内部模型来回转换，以保证 beta 字段、内容块顺序、thinking 签名等完全透传。
@@ -108,6 +110,14 @@ type relayRequest struct {
 
 	streamPayloadWritten atomic.Bool
 	responseCollected    atomic.Bool
+}
+
+func (r *relayRequest) circuitNoticeScope() circuitNoticeScope {
+	routingKey := r.noticeRoutingKey
+	if routingKey == "" {
+		routingKey = r.routingKey
+	}
+	return circuitNoticeScope{APIKeyID: r.apiKeyID, GroupID: r.groupID, RoutingKey: routingKey}
 }
 
 // requestContext returns the request context from gin or the standalone context.

@@ -52,6 +52,7 @@ func HandleWSResponse(c *gin.Context) {
 
 	apiKeyID := c.GetInt("api_key_id")
 	supportedModels := c.GetString("supported_models")
+	retryHeader := c.GetHeader("X-Stainless-Retry-Count")
 
 	log.Debugf("ws client connected (apikey=%d)", apiKeyID)
 
@@ -98,7 +99,7 @@ func HandleWSResponse(c *gin.Context) {
 			continue
 		}
 
-		conversationState = processWSResponseCreate(ctx, conn, data, apiKeyID, supportedModels, downstreamSessionID, conversationState)
+		conversationState = processWSResponseCreate(ctx, conn, data, apiKeyID, supportedModels, retryHeader, downstreamSessionID, conversationState)
 	}
 }
 
@@ -108,6 +109,7 @@ func processWSResponseCreate(
 	data []byte,
 	apiKeyID int,
 	supportedModels string,
+	retryHeader string,
 	downstreamSessionID string,
 	conversationState *wsConversationState,
 ) *wsConversationState {
@@ -213,7 +215,7 @@ func processWSResponseCreate(
 	}
 
 	requestModel = executionRequest.Model
-	req, group, err := newWSRelayRequest(ctx, conn, inAdapter, apiKeyID, requestModel, cloneInternalRequest(executionRequest), originalRequest, preferredSticky, bodyBytes)
+	req, group, err := newWSRelayRequest(ctx, conn, inAdapter, apiKeyID, requestModel, cloneInternalRequest(executionRequest), originalRequest, preferredSticky, bodyBytes, downstreamSessionID, retryHeader)
 	if err != nil {
 		status := 404
 		code := "model_not_found"
@@ -251,7 +253,7 @@ func processWSResponseCreate(
 			apiKeyID, requestModel, failedPreviousResponseID, result.ResetConversation)
 		balancer.DeleteSticky(apiKeyID, req.routingKey)
 		replayedRequest := conversationState.BuildReplayRequest(originalRequest)
-		replayReq, replayGroup, replayErr := newWSRelayRequest(ctx, conn, inAdapter, apiKeyID, requestModel, replayedRequest, originalRequest, preferredSticky, bodyBytes)
+		replayReq, replayGroup, replayErr := newWSRelayRequest(ctx, conn, inAdapter, apiKeyID, requestModel, replayedRequest, originalRequest, preferredSticky, bodyBytes, downstreamSessionID, retryHeader)
 		if replayErr == nil {
 			replayReq.metrics.SetWSMode(dbmodel.RelayLogWSModeReplay)
 			replayReq.metrics.SetWSRecovery(dbmodel.RelayLogWSRecoveryReplay)
@@ -402,6 +404,8 @@ func newWSRelayRequest(
 	metricsRequest *transformerModel.InternalLLMRequest,
 	preferredSticky *balancer.SessionEntry,
 	rawBody []byte,
+	downstreamSessionID string,
+	retryHeader string,
 ) (*relayRequest, *dbmodel.Group, error) {
 	sessionID := codexSessionID(executionRequest)
 	group, _, err := op.CodexSessionRouteResolve(sessionID, requestModel, ctx)
@@ -414,20 +418,26 @@ func newWSRelayRequest(
 	if iter.Len() == 0 {
 		return nil, nil, fmt.Errorf("no available channel")
 	}
+	noticeRoutingKey := routingKey
+	if _, known := parseStainlessRetryCount(retryHeader); !known {
+		noticeRoutingKey = downstreamSessionID + "\x00" + routingKey
+	}
 
 	return &relayRequest{
-		c:               nil,
-		ctx:             ctx,
-		inAdapter:       inAdapter,
-		internalRequest: executionRequest,
-		metrics:         NewRelayMetrics(apiKeyID, requestModel, rawBody, metricsRequest),
-		apiKeyID:        apiKeyID,
-		requestModel:    requestModel,
-		routingKey:      routingKey,
-		groupID:         group.ID,
-		groupSessionTTL: group.SessionKeepTime,
-		iter:            iter,
-		streamWriter:    NewWSStreamWriter(ctx, conn),
+		c:                nil,
+		ctx:              ctx,
+		inAdapter:        inAdapter,
+		internalRequest:  executionRequest,
+		metrics:          NewRelayMetrics(apiKeyID, requestModel, rawBody, metricsRequest),
+		apiKeyID:         apiKeyID,
+		requestModel:     requestModel,
+		routingKey:       routingKey,
+		noticeRoutingKey: noticeRoutingKey,
+		retryHeader:      retryHeader,
+		groupID:          group.ID,
+		groupSessionTTL:  group.SessionKeepTime,
+		iter:             iter,
+		streamWriter:     NewWSStreamWriter(ctx, conn),
 	}, &group, nil
 }
 
@@ -610,8 +620,20 @@ func finalizeWSRelay(ctx context.Context, conn *websocket.Conn, req *relayReques
 		return result
 	}
 
-	req.metrics.SaveWithChannelStats(ctx, false, result.Err, req.iter.Attempts(), false)
+	attempts := req.iter.Attempts()
+	emitLog := circuitNotices.shouldEmit(
+		req.circuitNoticeScope(),
+		req.retryHeader,
+		attempts,
+		time.Now(),
+	)
+	logErr := result.Err
+	if isPureCircuitBreak(attempts) && logErr == nil {
+		logErr = errAllChannelsCircuitBreak
+	}
+	req.metrics.saveWithChannelStats(ctx, false, logErr, attempts, false, emitLog)
 	if result.Canceled {
+		circuitNotices.reset(req.circuitNoticeScope())
 		return result
 	}
 	// Even when partial events were already forwarded downstream (Written), the
