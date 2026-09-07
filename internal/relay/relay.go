@@ -69,7 +69,12 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 
 	requestModel := internalRequest.Model
 	apiKeyID := c.GetInt("api_key_id")
-	sessionID := codexSessionID(internalRequest)
+	// 会话绑定优先用客户端请求头里的稳定线程 ID（codex 的 session_id /
+	// claude 的 X-Claude-Code-Session-Id），请求体标识只作兜底。
+	sessionID, sessionIDSource := resolveClientSessionID(c, internalRequest)
+	if sessionID != "" {
+		log.Debugf("client session id resolved (source=%s, session=%s, request_model=%s)", sessionIDSource, sessionID, requestModel)
+	}
 	routingKey := sessionRoutingKey(requestModel, sessionID)
 
 	// 获取通道分组
@@ -139,6 +144,8 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 
 	// 初始化 Metrics
 	metrics := NewRelayMetrics(apiKeyID, requestModel, rawBody, internalRequest)
+	metrics.GroupID = group.ID
+	metrics.GroupName = group.Name
 	// 如果触发了 HTTP replay，记录 ws_mode=replay 和 ws_recovery=replay
 	if responsesReplayState != nil {
 		metrics.SetWSMode(dbmodel.RelayLogWSModeReplay)

@@ -53,6 +53,9 @@ func HandleWSResponse(c *gin.Context) {
 	apiKeyID := c.GetInt("api_key_id")
 	supportedModels := c.GetString("supported_models")
 	retryHeader := c.GetHeader("X-Stainless-Retry-Count")
+	// 握手时捕获客户端的稳定会话 ID（codex-rs 的 session_id 头），
+	// 整个连接内所有 response.create 都复用它做会话绑定。
+	clientSessionID := codexClientSessionHeader(c)
 
 	log.Debugf("ws client connected (apikey=%d)", apiKeyID)
 
@@ -99,7 +102,7 @@ func HandleWSResponse(c *gin.Context) {
 			continue
 		}
 
-		conversationState = processWSResponseCreate(ctx, conn, data, apiKeyID, supportedModels, retryHeader, downstreamSessionID, conversationState)
+		conversationState = processWSResponseCreate(ctx, conn, data, apiKeyID, supportedModels, retryHeader, downstreamSessionID, clientSessionID, conversationState)
 	}
 }
 
@@ -111,6 +114,7 @@ func processWSResponseCreate(
 	supportedModels string,
 	retryHeader string,
 	downstreamSessionID string,
+	clientSessionID string,
 	conversationState *wsConversationState,
 ) *wsConversationState {
 	var reqBody map[string]json.RawMessage
@@ -122,7 +126,11 @@ func processWSResponseCreate(
 	// Remove WS-only fields
 	delete(reqBody, "type")
 	requestModel := strings.TrimSpace(extractWSRequestModel(reqBody))
-	sessionID := codexSessionIDFromRaw(reqBody)
+	// 会话绑定优先用握手时捕获的稳定线程 ID，prompt_cache_key 只作兜底
+	sessionID, sessionIDSource := resolveCodexSessionID(clientSessionID, codexSessionIDFromRaw(reqBody))
+	if sessionID != "" {
+		log.Debugf("ws codex session id resolved (source=%s, session=%s, request_model=%s)", sessionIDSource, sessionID, requestModel)
+	}
 	allowStoredRestore := wsRequestExplicitlyRequestsContinuation(reqBody)
 	requestedPreviousResponseID := ""
 	if raw, ok := reqBody["previous_response_id"]; ok && len(raw) > 0 {
@@ -165,7 +173,7 @@ func processWSResponseCreate(
 		var generate bool
 		if json.Unmarshal(genRaw, &generate) == nil && !generate {
 			go func() {
-				if err := bestEffortWarmupUpstreamWS(ctx, apiKeyID, supportedModels, reqBody); err != nil {
+				if err := bestEffortWarmupUpstreamWS(ctx, apiKeyID, supportedModels, reqBody, clientSessionID); err != nil {
 					log.Warnf("ws warmup failed (apikey=%d): %v", apiKeyID, err)
 				} else {
 					log.Debugf("ws warmup ready (apikey=%d)", apiKeyID)
@@ -215,7 +223,7 @@ func processWSResponseCreate(
 	}
 
 	requestModel = executionRequest.Model
-	req, group, err := newWSRelayRequest(ctx, conn, inAdapter, apiKeyID, requestModel, cloneInternalRequest(executionRequest), originalRequest, preferredSticky, bodyBytes, downstreamSessionID, retryHeader)
+	req, group, err := newWSRelayRequest(ctx, conn, inAdapter, apiKeyID, requestModel, cloneInternalRequest(executionRequest), originalRequest, preferredSticky, bodyBytes, downstreamSessionID, clientSessionID, retryHeader)
 	if err != nil {
 		status := 404
 		code := "model_not_found"
@@ -253,7 +261,7 @@ func processWSResponseCreate(
 			apiKeyID, requestModel, failedPreviousResponseID, result.ResetConversation)
 		balancer.DeleteSticky(apiKeyID, req.routingKey)
 		replayedRequest := conversationState.BuildReplayRequest(originalRequest)
-		replayReq, replayGroup, replayErr := newWSRelayRequest(ctx, conn, inAdapter, apiKeyID, requestModel, replayedRequest, originalRequest, preferredSticky, bodyBytes, downstreamSessionID, retryHeader)
+		replayReq, replayGroup, replayErr := newWSRelayRequest(ctx, conn, inAdapter, apiKeyID, requestModel, replayedRequest, originalRequest, preferredSticky, bodyBytes, downstreamSessionID, clientSessionID, retryHeader)
 		if replayErr == nil {
 			replayReq.metrics.SetWSMode(dbmodel.RelayLogWSModeReplay)
 			replayReq.metrics.SetWSRecovery(dbmodel.RelayLogWSRecoveryReplay)
@@ -300,9 +308,10 @@ func bestEffortWarmupUpstreamWS(
 	apiKeyID int,
 	supportedModels string,
 	reqBody map[string]json.RawMessage,
+	clientSessionID string,
 ) error {
 	requestModel := strings.TrimSpace(extractWSRequestModel(reqBody))
-	sessionID := codexSessionIDFromRaw(reqBody)
+	sessionID, _ := resolveCodexSessionID(clientSessionID, codexSessionIDFromRaw(reqBody))
 	if requestModel == "" {
 		return fmt.Errorf("warmup request missing model")
 	}
@@ -405,9 +414,10 @@ func newWSRelayRequest(
 	preferredSticky *balancer.SessionEntry,
 	rawBody []byte,
 	downstreamSessionID string,
+	clientSessionID string,
 	retryHeader string,
 ) (*relayRequest, *dbmodel.Group, error) {
-	sessionID := codexSessionID(executionRequest)
+	sessionID, _ := resolveCodexSessionID(clientSessionID, codexSessionID(executionRequest))
 	group, _, err := op.CodexSessionRouteResolve(sessionID, requestModel, ctx)
 	if err != nil {
 		return nil, nil, fmt.Errorf("model not found")
@@ -423,12 +433,16 @@ func newWSRelayRequest(
 		noticeRoutingKey = downstreamSessionID + "\x00" + routingKey
 	}
 
+	metrics := NewRelayMetrics(apiKeyID, requestModel, rawBody, metricsRequest)
+	metrics.GroupID = group.ID
+	metrics.GroupName = group.Name
+
 	return &relayRequest{
 		c:                nil,
 		ctx:              ctx,
 		inAdapter:        inAdapter,
 		internalRequest:  executionRequest,
-		metrics:          NewRelayMetrics(apiKeyID, requestModel, rawBody, metricsRequest),
+		metrics:          metrics,
 		apiKeyID:         apiKeyID,
 		requestModel:     requestModel,
 		routingKey:       routingKey,

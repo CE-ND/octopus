@@ -71,9 +71,13 @@ func CodexSessionRouteSet(sessionID, requestModel string, groupID int, ctx conte
 
 func CodexSessionRouteResolve(sessionID string, requestModel string, ctx context.Context) (model.Group, bool, error) {
 	if route, ok := codexSessionRouteCache.Get(codexSessionRouteKey(sessionID, requestModel)); ok {
-		if group, err := GroupGetEnabled(route.GroupID, ctx); err == nil {
+		group, err := GroupGetEnabled(route.GroupID, ctx)
+		if err == nil {
 			return group, true, nil
 		}
+		// 绑定存在但组没了/不可用：回退自动路由前先留痕，避免"绑了但没生效"无声失败
+		log.Warnf("codex session route matched but group unavailable, falling back to auto routing (session=%s, request_model=%s, group=%d): %v",
+			sessionID, requestModel, route.GroupID, err)
 	}
 	group, err := GroupGetEnabledMap(requestModel, ctx)
 	return group, false, err
@@ -101,7 +105,7 @@ type codexLocalSession struct {
 }
 
 func CodexSessionRouteList(ctx context.Context) ([]model.CodexSessionRouteView, error) {
-	sessions, err := discoverCodexSessions()
+	sessions, err := discoverAgentSessions()
 	if err != nil {
 		return nil, err
 	}
@@ -142,6 +146,23 @@ func discoverCodexSessions() ([]codexLocalSession, error) {
 	}
 
 	sessions := append(stateSessions, discoverRolloutSessions(knownIDs)...)
+	sort.Slice(sessions, func(i, j int) bool {
+		return sessions[i].UpdatedAt > sessions[j].UpdatedAt
+	})
+	return sessions, nil
+}
+
+// discoverAgentSessions 汇总 Codex 与 Claude Code 的本地会话，按最近使用排序。
+func discoverAgentSessions() ([]codexLocalSession, error) {
+	sessions, err := discoverCodexSessions()
+	if err != nil {
+		return nil, err
+	}
+	knownIDs := make(map[string]struct{}, len(sessions))
+	for _, session := range sessions {
+		knownIDs[session.ID] = struct{}{}
+	}
+	sessions = append(sessions, discoverClaudeSessions(knownIDs)...)
 	sort.Slice(sessions, func(i, j int) bool {
 		return sessions[i].UpdatedAt > sessions[j].UpdatedAt
 	})

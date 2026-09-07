@@ -2,8 +2,10 @@ package model
 
 import "time"
 
-// CodexSessionRoute binds a Codex thread UUID (desktop or CLI session) to a
-// routing group. The UUID is received as the Responses API prompt_cache_key.
+// CodexSessionRoute binds an agent session UUID (Codex CLI / desktop thread
+// or Claude Code session) to a routing group. The UUID comes from each
+// client's stable session identifier (codex session_id header / claude
+// X-Claude-Code-Session-Id header, with request-body fallbacks).
 type CodexSessionRoute struct {
 	ID           int       `json:"id" gorm:"primaryKey"`
 	SessionID    string    `json:"session_id" gorm:"size:64;not null;uniqueIndex:idx_codex_session_model_route"`
