@@ -5,7 +5,6 @@ import { GroupCard } from './Card';
 import { useGroupList } from '@/api/endpoints/group';
 import { useSearchStore, useToolbarViewOptionsStore } from '@/components/modules/toolbar';
 import { VirtualizedGrid } from '@/components/common/VirtualizedGrid';
-import { CodexSessionRouting } from './CodexSessionRouting';
 
 export function Group() {
     const { data: groups } = useGroupList();
@@ -43,7 +42,6 @@ export function Group() {
             estimateItemHeight={520}
             getItemKey={(group, index) => group.id ?? `group-${index}`}
             renderItem={(group) => <GroupCard group={group} />}
-            header={<CodexSessionRouting groups={groups ?? []} />}
         />
     );
 }

@@ -484,8 +484,6 @@
     },
     "group": {
         "codexRouting": {
-            "title": "Codex 會話路由",
-            "summary": "只為指定會話的目前模型覆蓋分組，其他模型繼續自動路由。",
             "manage": "管理會話",
             "dialogTitle": "Codex 會話路由",
             "description": "所選分組只覆蓋該會話的目前模型；切換到其他模型後仍會自動路由，除非該模型也單獨設定了規則。",
@@ -499,7 +497,18 @@
             "selectGroup": "選擇分組",
             "automatic": "自動路由（按模型名稱匹配）",
             "sourceCli": "CLI",
-            "sourceDesktop": "桌面端"
+            "sourceClaude": "Claude Code",
+            "sourceDesktop": "桌面端",
+            "cardAction": "會話路由",
+            "scopedTitle": "會話路由 · {group}",
+            "filterAll": "全部會話",
+            "filterGroup": "僅本組",
+            "filterSourceAll": "全部",
+            "filterSourceCodex": "Codex",
+            "filterSourceClaude": "Claude Code",
+            "bind": "綁定到本組",
+            "unbind": "解除綁定",
+            "boundOther": "目前分組：{group}"
         },
         "toast": {
             "created": "建立成功",

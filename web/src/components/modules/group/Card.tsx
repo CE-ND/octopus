@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { Trash2, X, Pencil, Pin, PinOff } from 'lucide-react';
+import { Trash2, X, Pencil, Pin, PinOff, Route } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { type Group, useDeleteGroup, useUpdateGroup, useToggleGroupPin } from '@/api/endpoints/group';
 import { useModelChannelList } from '@/api/endpoints/model';
@@ -15,6 +15,7 @@ import { MemberList } from './ItemList';
 import { GroupEditor, type GroupEditorValues } from './Editor';
 import { GroupHealthBadge } from './health';
 import { modelChannelKey, MODE_LABELS } from './utils';
+import { CodexSessionRoutingDialog } from './CodexSessionRouting';
 import { GroupMode, type GroupUpdateRequest } from '@/api/endpoints/group';
 import { PresetPopover } from './PresetPopover';
 import {
@@ -80,6 +81,7 @@ export function GroupCard({ group }: { group: Group }) {
     const { data: modelChannels = [] } = useModelChannelList();
 
     const [confirmDelete, setConfirmDelete] = useState(false);
+    const [sessionRoutingOpen, setSessionRoutingOpen] = useState(false);
     const [isDragging, setIsDragging] = useState(false);
     const [members, setMembers] = useState<SelectedMember[]>([]);
     const [weightOverrides, setWeightOverrides] = useState<Record<string, number>>({});
@@ -300,6 +302,19 @@ export function GroupCard({ group }: { group: Group }) {
 
                 <div className="flex items-center gap-1 shrink-0">
                     <Tooltip side="top" sideOffset={10} align="center">
+                        <TooltipTrigger asChild>
+                            <button
+                                type="button"
+                                onClick={() => setSessionRoutingOpen(true)}
+                                className="p-1.5 rounded-lg transition-colors hover:bg-muted text-muted-foreground hover:text-foreground"
+                            >
+                                <Route className="size-4" />
+                            </button>
+                        </TooltipTrigger>
+                        <TooltipContent>{t('codexRouting.cardAction')}</TooltipContent>
+                    </Tooltip>
+
+                    <Tooltip side="top" sideOffset={10} align="center">
                         <TooltipTrigger>
                             <CopyIconButton
                                 text={group.name}
@@ -457,6 +472,12 @@ export function GroupCard({ group }: { group: Group }) {
                     </motion.div>
                 )}
             </AnimatePresence>
+
+            <CodexSessionRoutingDialog
+                open={sessionRoutingOpen}
+                onOpenChange={setSessionRoutingOpen}
+                scopeGroup={group}
+            />
         </article >
     );
 }

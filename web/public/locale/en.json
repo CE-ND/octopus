@@ -484,8 +484,6 @@
     },
     "group": {
         "codexRouting": {
-            "title": "Codex session routing",
-            "summary": "Override a group for a specific session and model while other models remain automatic.",
             "manage": "Manage sessions",
             "dialogTitle": "Codex session routing",
             "description": "The selected group only overrides the session's current model. Switching to another model continues to use automatic routing unless that model also has a rule.",
@@ -499,7 +497,18 @@
             "selectGroup": "Select group",
             "automatic": "Automatic (match model name)",
             "sourceCli": "CLI",
-            "sourceDesktop": "Desktop"
+            "sourceClaude": "Claude Code",
+            "sourceDesktop": "Desktop",
+            "cardAction": "Session routing",
+            "scopedTitle": "Session routing · {group}",
+            "filterAll": "All sessions",
+            "filterGroup": "This group only",
+            "filterSourceAll": "All",
+            "filterSourceCodex": "Codex",
+            "filterSourceClaude": "Claude Code",
+            "bind": "Bind to this group",
+            "unbind": "Unbind",
+            "boundOther": "Assigned to {group}"
         },
         "toast": {
             "created": "Created successfully",

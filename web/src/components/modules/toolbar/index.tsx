@@ -10,6 +10,7 @@ import {
     KeyRound,
     LayoutGrid,
     List,
+    MessagesSquare,
     Network,
     Plus,
     RefreshCw,
@@ -32,6 +33,7 @@ import { useNavStore, type NavItem } from '@/components/modules/navbar';
 import { CreateDialogContent as ChannelCreateContent } from '@/components/modules/channel/Create';
 import { CreateDialogContent as GroupCreateContent } from '@/components/modules/group/Create';
 import { GroupAutoGroupDialogContent } from '@/components/modules/group/AutoGroupDialog';
+import { CodexSessionRoutingDialog } from '@/components/modules/group/CodexSessionRouting';
 import { CreateDialogContent as ModelCreateContent } from '@/components/modules/model/Create';
 import { useSiteUIStore } from '@/components/modules/site/ui-store';
 import { useLogUIStore } from '@/components/modules/log/ui-store';
@@ -93,6 +95,7 @@ function CreateDialogContent({ activeItem }: { activeItem: ToolbarPage }) {
 export function Toolbar() {
     const t = useTranslations('toolbar');
     const tProxyPool = useTranslations('proxyPool');
+    const tCodexRouting = useTranslations('group.codexRouting');
     const { activeItem } = useNavStore();
     const toolbarItem = isToolbarPage(activeItem) ? activeItem : null;
     const searchTerm = useSearchStore((s) => (toolbarItem ? s.searchTerms[toolbarItem] || '' : ''));
@@ -129,6 +132,7 @@ export function Toolbar() {
     const [viewOptionsOpen, setViewOptionsOpen] = useState(false);
     const [createDialogOpen, setCreateDialogOpen] = useState(false);
     const [autoGroupDialogOpen, setAutoGroupDialogOpen] = useState(false);
+    const [codexRoutingOpen, setCodexRoutingOpen] = useState(false);
 
     const searchExpanded = expandedSearchItem === toolbarItem;
 
@@ -189,6 +193,13 @@ export function Toolbar() {
         if (toolbarItem === 'group') {
             result.push(
                 {
+                    id: 'codex-session-routing',
+                    icon: <MessagesSquare className="size-4" />,
+                    label: tCodexRouting('manage'),
+                    onClick: () => setCodexRoutingOpen(true),
+                    priority: 'large',
+                },
+                {
                     id: 'auto-group',
                     icon: <WandSparkles className="size-4" />,
                     label: '自动分组',
@@ -239,6 +250,7 @@ export function Toolbar() {
         openCompletionDialog,
         requestLogRefresh,
         tProxyPool,
+        tCodexRouting,
     ]);
 
     if (!toolbarItem) return null;
@@ -558,6 +570,11 @@ export function Toolbar() {
                             </MorphingDialogContent>
                         </MorphingDialogContainer>
                     </MorphingDialog>
+                )}
+
+                {/* Codex 会话路由总览对话框 */}
+                {toolbarItem === 'group' && (
+                    <CodexSessionRoutingDialog open={codexRoutingOpen} onOpenChange={setCodexRoutingOpen} />
                 )}
             </div>
         </>
