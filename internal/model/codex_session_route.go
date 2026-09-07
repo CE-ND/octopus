@@ -2,8 +2,8 @@ package model
 
 import "time"
 
-// CodexSessionRoute binds a Codex desktop thread UUID to a routing group.
-// The UUID is received as the Responses API prompt_cache_key.
+// CodexSessionRoute binds a Codex thread UUID (desktop or CLI session) to a
+// routing group. The UUID is received as the Responses API prompt_cache_key.
 type CodexSessionRoute struct {
 	ID           int       `json:"id" gorm:"primaryKey"`
 	SessionID    string    `json:"session_id" gorm:"size:64;not null;uniqueIndex:idx_codex_session_model_route"`
@@ -31,4 +31,5 @@ type CodexSessionRouteView struct {
 	CurrentModel string `json:"current_model"`
 	GroupID      int    `json:"group_id"`
 	GroupName    string `json:"group_name"`
+	Source       string `json:"source"`
 }

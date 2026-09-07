@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { FolderOpen, MessagesSquare, RefreshCw, Route } from 'lucide-react';
+import { AppWindow, FolderOpen, MessagesSquare, RefreshCw, Route, Terminal } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import type { Group } from '@/api/endpoints/group';
 import { useCodexSessionRoutes, useUpdateCodexSessionRoute } from '@/api/endpoints/group';
@@ -92,8 +92,21 @@ export function CodexSessionRouting({ groups }: { groups: Group[] }) {
                                 return (
                                     <div key={session.session_id} className="flex flex-col gap-3 px-3 py-4 sm:flex-row sm:items-center">
                                         <div className="min-w-0 flex-1">
-                                            <div className="truncate text-sm font-medium text-foreground">
-                                                {session.title || t('untitled')}
+                                            <div className="flex min-w-0 items-center gap-2">
+                                                {session.source === 'cli' ? (
+                                                    <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                                                        <Terminal className="size-3" />
+                                                        {t('sourceCli')}
+                                                    </span>
+                                                ) : (
+                                                    <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                                                        <AppWindow className="size-3" />
+                                                        {t('sourceDesktop')}
+                                                    </span>
+                                                )}
+                                                <div className="truncate text-sm font-medium text-foreground">
+                                                    {session.title || t('untitled')}
+                                                </div>
                                             </div>
                                             <div className="mt-1 flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
                                                 <FolderOpen className="size-3.5 shrink-0" />

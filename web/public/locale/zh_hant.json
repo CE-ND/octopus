@@ -497,7 +497,9 @@
             "currentModel": "目前模型：",
             "modelUnknown": "未知",
             "selectGroup": "選擇分組",
-            "automatic": "自動路由（按模型名稱匹配）"
+            "automatic": "自動路由（按模型名稱匹配）",
+            "sourceCli": "CLI",
+            "sourceDesktop": "桌面端"
         },
         "toast": {
             "created": "建立成功",

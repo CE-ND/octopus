@@ -1,18 +1,27 @@
 package op
 
 import (
+	"bufio"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/bestruirui/octopus/internal/db"
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/utils/cache"
+	"github.com/bestruirui/octopus/internal/utils/log"
 	"gorm.io/gorm/clause"
+)
+
+const (
+	codexRolloutScanLimit  = 200
+	codexRolloutModelLimit = 64
 )
 
 var codexSessionRouteCache = cache.New[string, model.CodexSessionRoute](16)
@@ -88,6 +97,7 @@ type codexLocalSession struct {
 	CWD       string
 	UpdatedAt int64
 	Model     string
+	Source    string
 }
 
 func CodexSessionRouteList(ctx context.Context) ([]model.CodexSessionRouteView, error) {
@@ -103,6 +113,7 @@ func CodexSessionRouteList(ctx context.Context) ([]model.CodexSessionRouteView, 
 			CWD:          session.CWD,
 			UpdatedAt:    session.UpdatedAt,
 			CurrentModel: session.Model,
+			Source:       session.Source,
 		}
 		if route, ok := codexSessionRouteCache.Get(codexSessionRouteKey(session.ID, session.Model)); ok {
 			view.GroupID = route.GroupID
@@ -116,10 +127,28 @@ func CodexSessionRouteList(ctx context.Context) ([]model.CodexSessionRouteView, 
 }
 
 func discoverCodexSessions() ([]codexLocalSession, error) {
+	stateSessions := make([]codexLocalSession, 0)
+	knownIDs := make(map[string]struct{})
 	statePath, err := findCodexStateDB()
 	if err != nil {
-		return nil, err
+		log.Debugw("codex_session.state_db_unavailable", "error", err.Error())
+	} else if sessions, err := readCodexStateSessions(statePath); err != nil {
+		log.Warnw("codex_session.state_db_read_failed", "error", err.Error())
+	} else {
+		stateSessions = sessions
+		for _, session := range sessions {
+			knownIDs[session.ID] = struct{}{}
+		}
 	}
+
+	sessions := append(stateSessions, discoverRolloutSessions(knownIDs)...)
+	sort.Slice(sessions, func(i, j int) bool {
+		return sessions[i].UpdatedAt > sessions[j].UpdatedAt
+	})
+	return sessions, nil
+}
+
+func readCodexStateSessions(statePath string) ([]codexLocalSession, error) {
 	dsn := "file:" + filepath.ToSlash(statePath) + "?mode=ro"
 	localDB, err := sql.Open("sqlite", dsn)
 	if err != nil {
@@ -127,7 +156,7 @@ func discoverCodexSessions() ([]codexLocalSession, error) {
 	}
 	defer localDB.Close()
 
-	rows, err := localDB.Query(`SELECT id, COALESCE(title, ''), COALESCE(cwd, ''), COALESCE(updated_at_ms, updated_at * 1000, 0), COALESCE(model, '') FROM threads WHERE COALESCE(archived, 0) = 0 AND thread_source = 'user' AND source <> 'cli' ORDER BY COALESCE(recency_at_ms, updated_at_ms, updated_at * 1000, 0) DESC`)
+	rows, err := localDB.Query(`SELECT id, COALESCE(title, ''), COALESCE(cwd, ''), COALESCE(updated_at_ms, updated_at * 1000, 0), COALESCE(model, ''), COALESCE(source, '') FROM threads WHERE COALESCE(archived, 0) = 0 AND thread_source = 'user' ORDER BY COALESCE(recency_at_ms, updated_at_ms, updated_at * 1000, 0) DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("query Codex sessions: %w", err)
 	}
@@ -136,7 +165,7 @@ func discoverCodexSessions() ([]codexLocalSession, error) {
 	sessions := make([]codexLocalSession, 0)
 	for rows.Next() {
 		var session codexLocalSession
-		if err := rows.Scan(&session.ID, &session.Title, &session.CWD, &session.UpdatedAt, &session.Model); err != nil {
+		if err := rows.Scan(&session.ID, &session.Title, &session.CWD, &session.UpdatedAt, &session.Model, &session.Source); err != nil {
 			return nil, err
 		}
 		session.CWD = strings.TrimPrefix(session.CWD, `\\?\`)
@@ -145,14 +174,212 @@ func discoverCodexSessions() ([]codexLocalSession, error) {
 	return sessions, rows.Err()
 }
 
-func findCodexStateDB() (string, error) {
-	root := strings.TrimSpace(os.Getenv("CODEX_HOME"))
-	if root == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", err
+// rolloutSessionMeta mirrors the session_meta payload on the first line of a
+// rollout-*.jsonl file written by Codex CLI / desktop.
+type rolloutSessionMeta struct {
+	ID           string `json:"id"`
+	CWD          string `json:"cwd"`
+	Source       string `json:"source"`
+	ThreadSource string `json:"thread_source"`
+	Originator   string `json:"originator"`
+}
+
+func discoverRolloutSessions(knownIDs map[string]struct{}) []codexLocalSession {
+	home := codexHomeDir()
+	if home == "" {
+		return nil
+	}
+	sessionsDir := filepath.Join(home, "sessions")
+	entries, err := collectRolloutFiles(sessionsDir)
+	if err != nil {
+		log.Debugw("codex_session.rollout_walk_failed", "error", err.Error())
+		return nil
+	}
+	if len(entries) == 0 {
+		return nil
+	}
+
+	index := readCodexSessionIndex(home)
+	sessions := make([]codexLocalSession, 0)
+	for _, entry := range entries {
+		sessionID := rolloutSessionID(entry.name)
+		if sessionID == "" {
+			continue
 		}
-		root = filepath.Join(home, ".codex")
+		if _, ok := knownIDs[sessionID]; ok {
+			continue
+		}
+		meta := readRolloutSessionMeta(entry.path)
+		if meta == nil || !isCLIRolloutSessionMeta(meta) {
+			continue
+		}
+		view := codexLocalSession{
+			ID:     sessionID,
+			CWD:    strings.TrimPrefix(meta.CWD, `\\?\`),
+			Model:  readRolloutSessionModel(entry.path),
+			Source: "cli",
+		}
+		if meta.Source != "" {
+			view.Source = meta.Source
+		}
+		if info, ok := index[sessionID]; ok {
+			view.Title = info.ThreadName
+			view.UpdatedAt = info.UpdatedAtMs
+		}
+		if view.UpdatedAt == 0 {
+			view.UpdatedAt = entry.modTime.UnixMilli()
+		}
+		sessions = append(sessions, view)
+	}
+	return sessions
+}
+
+func isCLIRolloutSessionMeta(meta *rolloutSessionMeta) bool {
+	if meta.ThreadSource != "" && meta.ThreadSource != "user" {
+		return false
+	}
+	return meta.Source == "cli" || meta.Originator == "codex_cli_rs"
+}
+
+type rolloutFileEntry struct {
+	path    string
+	name    string
+	modTime time.Time
+}
+
+func collectRolloutFiles(sessionsDir string) ([]rolloutFileEntry, error) {
+	entries := make([]rolloutFileEntry, 0)
+	err := filepath.WalkDir(sessionsDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() || !strings.HasSuffix(d.Name(), ".jsonl") {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return nil
+		}
+		entries = append(entries, rolloutFileEntry{path: path, name: d.Name(), modTime: info.ModTime()})
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].modTime.After(entries[j].modTime)
+	})
+	if len(entries) > codexRolloutScanLimit {
+		entries = entries[:codexRolloutScanLimit]
+	}
+	return entries, nil
+}
+
+// rolloutSessionID extracts the thread UUID encoded at the end of a rollout
+// file name, e.g. rollout-2026-07-23T22-20-45-<uuid>.jsonl.
+func rolloutSessionID(fileName string) string {
+	name := strings.TrimSuffix(fileName, ".jsonl")
+	if len(name) < 45 {
+		return ""
+	}
+	id := name[len(name)-36:]
+	if id[8] != '-' || id[13] != '-' || id[18] != '-' || id[23] != '-' {
+		return ""
+	}
+	return id
+}
+
+func readRolloutSessionMeta(path string) *rolloutSessionMeta {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer file.Close()
+
+	var line struct {
+		Type    string             `json:"type"`
+		Payload rolloutSessionMeta `json:"payload"`
+	}
+	if err := json.NewDecoder(bufio.NewReaderSize(file, 64*1024)).Decode(&line); err != nil || line.Type != "session_meta" {
+		return nil
+	}
+	return &line.Payload
+}
+
+func readRolloutSessionModel(path string) string {
+	file, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer file.Close()
+
+	decoder := json.NewDecoder(bufio.NewReaderSize(file, 64*1024))
+	var line struct {
+		Type    string `json:"type"`
+		Payload struct {
+			Model string `json:"model"`
+		} `json:"payload"`
+	}
+	for i := 0; i < codexRolloutModelLimit; i++ {
+		line.Type = ""
+		line.Payload.Model = ""
+		if err := decoder.Decode(&line); err != nil {
+			return ""
+		}
+		if line.Type == "turn_context" {
+			return strings.TrimSpace(line.Payload.Model)
+		}
+	}
+	return ""
+}
+
+type codexSessionIndexEntry struct {
+	ThreadName  string
+	UpdatedAtMs int64
+}
+
+func readCodexSessionIndex(home string) map[string]codexSessionIndexEntry {
+	index := make(map[string]codexSessionIndexEntry)
+	file, err := os.Open(filepath.Join(home, "session_index.jsonl"))
+	if err != nil {
+		return index
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for scanner.Scan() {
+		var entry struct {
+			ID         string `json:"id"`
+			ThreadName string `json:"thread_name"`
+			UpdatedAt  string `json:"updated_at"`
+		}
+		if err := json.Unmarshal(scanner.Bytes(), &entry); err != nil || entry.ID == "" {
+			continue
+		}
+		index[entry.ID] = codexSessionIndexEntry{ThreadName: entry.ThreadName}
+		if updated, err := time.Parse(time.RFC3339Nano, entry.UpdatedAt); err == nil {
+			index[entry.ID] = codexSessionIndexEntry{ThreadName: entry.ThreadName, UpdatedAtMs: updated.UnixMilli()}
+		}
+	}
+	return index
+}
+
+func codexHomeDir() string {
+	if root := strings.TrimSpace(os.Getenv("CODEX_HOME")); root != "" {
+		return root
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".codex")
+}
+
+func findCodexStateDB() (string, error) {
+	root := codexHomeDir()
+	if root == "" {
+		return "", fmt.Errorf("cannot resolve Codex home directory")
 	}
 	matches, err := filepath.Glob(filepath.Join(root, "state_*.sqlite"))
 	if err != nil || len(matches) == 0 {

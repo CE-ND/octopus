@@ -51,6 +51,7 @@ export interface CodexSessionRoute {
     current_model: string;
     group_id: number;
     group_name: string;
+    source?: string;
 }
 
 /**

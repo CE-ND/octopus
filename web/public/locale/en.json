@@ -497,7 +497,9 @@
             "currentModel": "Current model:",
             "modelUnknown": "Unknown",
             "selectGroup": "Select group",
-            "automatic": "Automatic (match model name)"
+            "automatic": "Automatic (match model name)",
+            "sourceCli": "CLI",
+            "sourceDesktop": "Desktop"
         },
         "toast": {
             "created": "Created successfully",
