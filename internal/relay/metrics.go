@@ -20,6 +20,10 @@ type RelayMetrics struct {
 	RequestModel string
 	StartTime    time.Time
 
+	// 路由命中的分组（会话路由或自动路由），写入日志便于区分同名渠道的分组
+	GroupID   int
+	GroupName string
+
 	// 首 Token 时间
 	FirstTokenTime time.Time
 
@@ -232,6 +236,8 @@ func (m *RelayMetrics) saveLog(ctx context.Context, success bool, err error, dur
 	relayLog := model.RelayLog{
 		Time:             m.StartTime.Unix(),
 		RequestModelName: m.RequestModel,
+		GroupID:          m.GroupID,
+		GroupName:        m.GroupName,
 		ChannelName:      channelName,
 		ChannelId:        channelID,
 		ActualModelName:  actualModel,

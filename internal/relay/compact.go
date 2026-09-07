@@ -88,6 +88,8 @@ func HandleResponsesCompact(c *gin.Context) {
 
 	metricsReq := &transformerModel.InternalLLMRequest{Model: requestModel, RawRequest: body}
 	metrics := NewRelayMetrics(apiKeyID, requestModel, body, metricsReq)
+	metrics.GroupID = group.ID
+	metrics.GroupName = group.Name
 	noticeScope := circuitNoticeScope{APIKeyID: apiKeyID, GroupID: group.ID, RoutingKey: requestModel}
 	defer func() {
 		if c.Request.Context().Err() != nil {

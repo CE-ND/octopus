@@ -651,6 +651,15 @@ export function LogCard({ log, siteTargets }: { log: RelayLog; siteTargets: LogS
                                         {log.request_model_name}
                                     </span>
                                     <ArrowRight className="size-3.5 shrink-0 text-muted-foreground/50" />
+                                    {log.group_name?.trim() ? (
+                                        <Badge
+                                            variant="outline"
+                                            className="shrink-0 text-xs px-1.5 py-0 text-muted-foreground max-w-40"
+                                            title={log.group_name}
+                                        >
+                                            {log.group_name}
+                                        </Badge>
+                                    ) : null}
                                     {hasMultipleAttempts ? (
                                         <RetryBadgeWithTooltip
                                             channelName={log.channel_name}
@@ -735,6 +744,15 @@ export function LogCard({ log, siteTargets }: { log: RelayLog; siteTargets: LogS
                                 <ModelAvatar size={28} />
                                 <span className="font-semibold text-card-foreground truncate">{log.request_model_name}</span>
                                 <ArrowRight className="size-3.5 shrink-0 text-muted-foreground/50" />
+                                {log.group_name?.trim() ? (
+                                    <Badge
+                                        variant="outline"
+                                        className="shrink-0 text-xs px-1.5 py-0 text-muted-foreground max-w-40"
+                                        title={log.group_name}
+                                    >
+                                        {log.group_name}
+                                    </Badge>
+                                ) : null}
                                 {hasMultipleAttempts ? (
                                     <RetryBadgeWithTooltip
                                         channelName={log.channel_name}

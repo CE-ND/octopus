@@ -54,6 +54,8 @@ type RelayLog struct {
 	Time                 int64               `json:"time"`                                     // 时间戳（秒）
 	RequestModelName     string              `json:"request_model_name"`                       // 请求模型名称
 	RequestAPIKeyName    string              `json:"request_api_key_name"`                     // 请求使用的 API Key 名称
+	GroupID              int                 `json:"group_id"`                                 // 路由命中的分组ID（会话路由/自动路由统一记录）
+	GroupName            string              `json:"group_name"`                               // 路由命中的分组名称
 	ChannelId            int                 `json:"channel" gorm:"index"`                     // 实际使用的渠道ID
 	ChannelName          string              `json:"channel_name"`                             // 渠道名称
 	ActualModelName      string              `json:"actual_model_name"`                        // 实际使用模型名称
