@@ -1140,7 +1140,7 @@ func buildAllAPIHubImportPayload(managedUsername string) map[string]any {
 func buildMetAPIImportPayload(managedUsername string) map[string]any {
 	return map[string]any{
 		"version":   "2.1",
-		"timestamp": 1760000000000,
+		"timestamp": int64(1760000000000),
 		"type":      "accounts",
 		"accounts": map[string]any{
 			"sites": []any{
