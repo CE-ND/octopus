@@ -74,9 +74,9 @@ func fetchOpenAIModels(client *http.Client, ctx context.Context, request model.C
 		return nil, err
 	}
 
-	models := make([]string, 0, len(result.Data))
-	for _, m := range result.Data {
-		models = append(models, m.ID)
+	models := result.IDs()
+	if len(models) == 0 {
+		return nil, nil
 	}
 	return models, nil
 }

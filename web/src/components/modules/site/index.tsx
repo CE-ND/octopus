@@ -118,6 +118,7 @@ const PLATFORM_LABELS: Record<SitePlatform, string> = {
   [SitePlatform.OneHub]: "One Hub",
   [SitePlatform.DoneHub]: "Done Hub",
   [SitePlatform.Sub2API]: "Sub2API",
+  [SitePlatform.Zhipu]: "智谱 GLM",
 };
 
 const CREDENTIAL_LABELS: Record<SiteCredentialType, string> = {

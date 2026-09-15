@@ -86,6 +86,7 @@ const PLATFORM_LABELS: Record<SitePlatform, string> = {
     [SitePlatform.OneHub]: 'One Hub',
     [SitePlatform.DoneHub]: 'Done Hub',
     [SitePlatform.Sub2API]: 'Sub2API',
+    [SitePlatform.Zhipu]: '智谱 GLM',
 };
 
 function createEmptySiteForm(): SiteFormState {
@@ -292,7 +293,9 @@ export function SiteEditDialog({ open, onOpenChange, site, onCreated, allTags }:
                 route_base_urls: routeBaseURLs,
                 tags: siteForm.tags,
                 default_route_type:
-                    platform === SitePlatform.API ? defaultRouteType : undefined,
+                    platform === SitePlatform.API || platform === SitePlatform.Zhipu
+                        ? defaultRouteType
+                        : undefined,
             };
 
             try {
@@ -416,7 +419,7 @@ export function SiteEditDialog({ open, onOpenChange, site, onCreated, allTags }:
                             />
                         </label>
 
-                        {siteForm.platform === SitePlatform.API && (
+                        {(siteForm.platform === SitePlatform.API || siteForm.platform === SitePlatform.Zhipu) && (
                             <div className="grid gap-2 text-sm">
                                 <div className="flex items-center gap-1.5">
                                     <span className="font-medium">默认协议</span>

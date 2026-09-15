@@ -16,6 +16,11 @@ var urlPlatformHints = []struct {
 	platform         model.SitePlatform
 	defaultRouteType model.SiteModelRouteType
 }{
+	// 智谱 open.bigmodel.cn 的 /api/status 会返回含 "success" 的 JSON，
+	// 若不在这里短路会被下面的 status 探测误判为 NewAPI。
+	{"open.bigmodel.cn", model.SitePlatformZhipu, model.SiteModelRouteTypeOpenAIChat},
+	{"api.zhipu.ai", model.SitePlatformZhipu, model.SiteModelRouteTypeOpenAIChat},
+	{"api.z.ai", model.SitePlatformZhipu, model.SiteModelRouteTypeOpenAIChat},
 	{"api.openai.com", model.SitePlatformAPI, model.SiteModelRouteTypeOpenAIChat},
 	{"api.anthropic.com", model.SitePlatformAPI, model.SiteModelRouteTypeAnthropic},
 	{"anthropic.com/v1", model.SitePlatformAPI, model.SiteModelRouteTypeAnthropic},

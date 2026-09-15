@@ -39,6 +39,10 @@ func fetchSiteAccountBalance(ctx context.Context, siteRecord *model.Site, accoun
 	case model.SitePlatformSub2API:
 		balance, used := fetchSub2APIBalance(ctx, siteRecord, account, accessToken)
 		return balance, used, 0
+	case model.SitePlatformZhipu:
+		// 智谱未提供公开的余额/套餐用量 API（/v4/users/me/balance 与
+		// /v4/account 均为 404），Coding Plan 余量只能在其控制台查看。
+		return 0, 0, 0
 	default:
 		return 0, 0, 0
 	}

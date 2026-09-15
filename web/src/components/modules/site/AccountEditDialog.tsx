@@ -118,6 +118,7 @@ function credentialOptions(platform: SitePlatform) {
         case SitePlatform.Sub2API:
             return [SiteCredentialType.AccessToken, SiteCredentialType.APIKey];
         case SitePlatform.API:
+        case SitePlatform.Zhipu:
             return [SiteCredentialType.AccessToken, SiteCredentialType.APIKey];
         default:
             return [

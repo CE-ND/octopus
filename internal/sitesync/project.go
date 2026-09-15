@@ -401,7 +401,44 @@ func buildProjectedChannelBaseURL(siteRecord *model.Site) string {
 	if strings.HasSuffix(strings.ToLower(baseURL), "/v1") {
 		return baseURL
 	}
+	if siteRecord.Platform == model.SitePlatformZhipu {
+		// 智谱的端点不在裸域名 /v1 下，按默认协议映射官方编程端点
+		// （与模型列表拉取的候选一致）；已填到对应协议路径的视为完整
+		// 端点，原样使用。
+		return zhipuProjectedBaseURL(siteRecord, baseURL)
+	}
 	return baseURL + "/v1"
+}
+
+// zhipu 官方编程端点到渠道 base URL 的映射：
+//
+//	anthropic        → <base>/api/anthropic/v1   (outbound 拼 /messages)
+//	openai_response  → <base>/api/v1             (outbound 拼 /responses)
+//	openai_chat(默认) → <base>/api/coding/paas/v4 (outbound 拼 /chat/completions)
+//
+// 与模型拉取一致：URL 已指明端点家族时以 URL 为准，否则按默认协议映射。
+func zhipuProjectedBaseURL(siteRecord *model.Site, baseURL string) string {
+	lowered := strings.ToLower(baseURL)
+	switch zhipuResolvedRouteType(siteRecord, baseURL) {
+	case model.SiteModelRouteTypeAnthropic:
+		if strings.Contains(lowered, "/anthropic") {
+			if strings.HasSuffix(lowered, "/v1") {
+				return baseURL
+			}
+			return strings.TrimRight(baseURL, "/") + "/v1"
+		}
+		return baseURL + "/api/anthropic/v1"
+	case model.SiteModelRouteTypeOpenAIResponse:
+		if strings.HasSuffix(lowered, "/v1") || strings.Contains(lowered, "/v4") || strings.Contains(lowered, "/paas") {
+			return baseURL
+		}
+		return baseURL + "/api/v1"
+	default:
+		if strings.Contains(lowered, "/v4") || strings.Contains(lowered, "/paas") {
+			return baseURL
+		}
+		return baseURL + "/api/coding/paas/v4"
+	}
 }
 
 // resolveProjectedChannelBaseURL returns the base URL for a projected channel
@@ -523,12 +560,19 @@ func syncProjectedModelPrices(ctx context.Context, modelsByGroup map[string][]mo
 }
 
 func platformOutboundType(site *model.Site) outbound.OutboundType {
+	if site.Platform == model.SitePlatformZhipu {
+		// URL 已指明官方端点家族时以 URL 为准（与模型拉取/投影 URL 的
+		// 逻辑一致），否则按站点默认协议。
+		return zhipuOutboundTypeForRoute(zhipuResolvedRouteType(site, site.BaseURL))
+	}
 	if site.Platform == model.SitePlatformAPI {
 		switch site.ResolveDefaultRouteType() {
 		case model.SiteModelRouteTypeAnthropic:
 			return outbound.OutboundTypeAnthropic
 		case model.SiteModelRouteTypeGemini:
 			return outbound.OutboundTypeGemini
+		case model.SiteModelRouteTypeOpenAIResponse:
+			return outbound.OutboundTypeOpenAIResponse
 		default:
 			return outbound.OutboundTypeOpenAIChat
 		}

@@ -9,6 +9,7 @@ import (
 	"github.com/bestruirui/octopus/internal/apperror"
 	"github.com/bestruirui/octopus/internal/helper"
 	"github.com/bestruirui/octopus/internal/model"
+	"github.com/bestruirui/octopus/internal/transformer/outbound"
 )
 
 const (
@@ -254,7 +255,7 @@ func fetchModelsForSiteToken(ctx context.Context, siteRecord *model.Site, accoun
 	)
 
 	for _, baseURL := range buildModelFetchBaseURLs(siteRecord) {
-		channel := model.Channel{Type: platformOutboundType(siteRecord), BaseUrls: []model.BaseUrl{{URL: baseURL, Delay: 0}}, Keys: []model.ChannelKey{{Enabled: true, ChannelKey: tokenValue}}, ProxyMode: proxyMode, ProxyConfigID: proxyConfigID, CustomHeader: siteRecord.CustomHeader}
+		channel := model.Channel{Type: fetchOutboundType(siteRecord, baseURL), BaseUrls: []model.BaseUrl{{URL: baseURL, Delay: 0}}, Keys: []model.ChannelKey{{Enabled: true, ChannelKey: tokenValue}}, ProxyMode: proxyMode, ProxyConfigID: proxyConfigID, CustomHeader: siteRecord.CustomHeader}
 		fetched, err := helper.FetchModels(ctx, channel)
 		if err == nil && len(fetched) > 0 {
 			return normalizeModelNames(fetched), nil
@@ -482,11 +483,102 @@ func buildModelFetchBaseURLs(siteRecord *model.Site) []string {
 		return nil
 	}
 
+	if siteRecord.Platform == model.SitePlatformZhipu {
+		return zhipuModelFetchCandidates(siteRecord, baseURL)
+	}
+
 	candidates := []string{baseURL}
 	if sitePlatformUsesV1ModelEndpoint(siteRecord) && !strings.HasSuffix(strings.ToLower(baseURL), "/v1") {
 		candidates = append(candidates, baseURL+"/v1")
 	}
 	return candidates
+}
+
+// zhipuURLRouteType 从 URL 路径识别智谱官方编程端点所属协议。
+// 返回空表示 URL 不是任何已知智谱端点路径（如裸域名），此时由默认协议决定。
+//
+//	…/api/anthropic(/v1)?  → anthropic
+//	…/api/v1               → openai_response
+//	…/api/coding/paas/v4、…/api/paas/v4 → openai_chat
+func zhipuURLRouteType(baseURL string) model.SiteModelRouteType {
+	lowered := strings.ToLower(baseURL)
+	switch {
+	case strings.Contains(lowered, "/anthropic"):
+		return model.SiteModelRouteTypeAnthropic
+	case strings.Contains(lowered, "/v4") || strings.Contains(lowered, "/paas"):
+		return model.SiteModelRouteTypeOpenAIChat
+	case strings.HasSuffix(lowered, "/v1"):
+		return model.SiteModelRouteTypeOpenAIResponse
+	default:
+		return ""
+	}
+}
+
+// zhipuResolvedRouteType 返回智谱站点的有效协议：URL 已指明端点家族时以
+// URL 为准（用户直接粘官方端点 URL 时协议下拉往往不再改动），否则回退
+// 站点默认协议。
+func zhipuResolvedRouteType(siteRecord *model.Site, baseURL string) model.SiteModelRouteType {
+	if rt := zhipuURLRouteType(baseURL); rt != "" {
+		return rt
+	}
+	return siteRecord.ResolveDefaultRouteType()
+}
+
+// zhipu 官方编程端点（按协议）：
+//
+//	Anthropic Messages  https://open.bigmodel.cn/api/anthropic       (模型列表在 /v1/models)
+//	OpenAI Chat         https://open.bigmodel.cn/api/coding/paas/v4  (模型列表在 /models)
+//	OpenAI Responses    https://open.bigmodel.cn/api/v1              (模型列表在 /models)
+//
+// zhipuModelFetchCandidates 按站点的有效协议（URL 优先，默认协议兜底）返回
+// 模型列表候选端点。站点地址只填裸域名时补全官方路径；已填到对应协议路径
+// 的视为完整端点，原样使用。
+func zhipuModelFetchCandidates(siteRecord *model.Site, baseURL string) []string {
+	switch zhipuResolvedRouteType(siteRecord, baseURL) {
+	case model.SiteModelRouteTypeAnthropic:
+		if strings.Contains(strings.ToLower(baseURL), "/anthropic") {
+			if strings.HasSuffix(strings.ToLower(baseURL), "/v1") {
+				return []string{baseURL}
+			}
+			return []string{strings.TrimRight(baseURL, "/") + "/v1"}
+		}
+		return []string{baseURL + "/api/anthropic/v1"}
+	case model.SiteModelRouteTypeOpenAIResponse:
+		if strings.HasSuffix(strings.ToLower(baseURL), "/v1") || strings.Contains(strings.ToLower(baseURL), "/v4") || strings.Contains(strings.ToLower(baseURL), "/paas") {
+			return []string{baseURL}
+		}
+		return []string{baseURL + "/api/v1"}
+	default:
+		if strings.Contains(strings.ToLower(baseURL), "/v4") || strings.Contains(strings.ToLower(baseURL), "/paas") {
+			return []string{baseURL}
+		}
+		return []string{
+			baseURL + "/api/coding/paas/v4",
+			baseURL + "/api/paas/v4",
+		}
+	}
+}
+
+// fetchOutboundType 返回拉取单个候选端点模型列表时使用的出站协议：
+// zhipu 以 URL 端点家族优先（用户直接粘官方端点 URL 时协议可能仍停留在
+// 旧值），其余平台沿用站点级协议。
+func fetchOutboundType(siteRecord *model.Site, baseURL string) outbound.OutboundType {
+	if siteRecord.Platform == model.SitePlatformZhipu {
+		return zhipuOutboundTypeForRoute(zhipuResolvedRouteType(siteRecord, baseURL))
+	}
+	return platformOutboundType(siteRecord)
+}
+
+// zhipuOutboundTypeForRoute 把智谱有效协议映射到出站类型。
+func zhipuOutboundTypeForRoute(routeType model.SiteModelRouteType) outbound.OutboundType {
+	switch routeType {
+	case model.SiteModelRouteTypeAnthropic:
+		return outbound.OutboundTypeAnthropic
+	case model.SiteModelRouteTypeOpenAIResponse:
+		return outbound.OutboundTypeOpenAIResponse
+	default:
+		return outbound.OutboundTypeOpenAIChat
+	}
 }
 
 func filterSessionFallbackModelsByGroup(
@@ -564,6 +656,10 @@ func sitePlatformUsesV1ModelEndpoint(site *model.Site) bool {
 	if site.Platform == model.SitePlatformAPI {
 		rt := site.ResolveDefaultRouteType()
 		return rt == model.SiteModelRouteTypeOpenAIChat || rt == ""
+	}
+	if site.Platform == model.SitePlatformZhipu {
+		// zhipu 的候选 URL 已是完整端点（见 buildModelFetchBaseURLs），不再追加 /v1。
+		return false
 	}
 	return true
 }

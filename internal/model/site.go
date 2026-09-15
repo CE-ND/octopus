@@ -20,6 +20,7 @@ const (
 	SitePlatformOneHub    SitePlatform = "one-hub"
 	SitePlatformDoneHub   SitePlatform = "done-hub"
 	SitePlatformSub2API SitePlatform = "sub2api"
+	SitePlatformZhipu  SitePlatform = "zhipu"
 	SitePlatformAPI     SitePlatform = "api"
 )
 
@@ -546,11 +547,11 @@ func NormalizeSiteSyncTokenValue(value string) string {
 
 // usesSyncTokenSkPrefix reports whether the platform follows the new-api family
 // convention where tokens are surfaced without the "sk-" prefix but must carry
-// it on upstream requests. Direct provider platforms (OpenAI/Claude/Gemini) use
-// their keys verbatim, so they must never have a prefix forced on them.
+// it on upstream requests. Direct provider platforms (OpenAI/Claude/Gemini/Zhipu)
+// use their keys verbatim, so they must never have a prefix forced on them.
 func (p SitePlatform) usesSyncTokenSkPrefix() bool {
 	switch p {
-	case SitePlatformAPI:
+	case SitePlatformAPI, SitePlatformZhipu:
 		return false
 	default:
 		return true
@@ -785,7 +786,7 @@ func ParseSiteChannelBindingKey(groupKey string) (string, SiteModelRouteType) {
 
 func ShouldSplitSiteChannelRoutes(platform SitePlatform) bool {
 	switch platform {
-	case SitePlatformAPI:
+	case SitePlatformAPI, SitePlatformZhipu:
 		return false
 	default:
 		return true
@@ -829,7 +830,7 @@ func SiteModelRouteTypeFromOutboundType(t outbound.OutboundType) SiteModelRouteT
 func (p SitePlatform) Validate() error {
 	switch p {
 	case SitePlatformNewAPI, SitePlatformAnyRouter, SitePlatformOneAPI, SitePlatformOneHub, SitePlatformDoneHub,
-		SitePlatformSub2API, SitePlatformAPI:
+		SitePlatformSub2API, SitePlatformZhipu, SitePlatformAPI:
 		return nil
 	default:
 		return fmt.Errorf("unsupported site platform: %s", p)

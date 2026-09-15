@@ -11,6 +11,7 @@ export enum SitePlatform {
   OneHub = "one-hub",
   DoneHub = "done-hub",
   Sub2API = "sub2api",
+  Zhipu = "zhipu",
   API = "api",
 }
 
