@@ -10,7 +10,7 @@ import {
     Groq,
     Cohere,
     Perplexity,
-    Zhipu,
+    ZAI,
     Yi,
     Kimi,
     Minimax,
@@ -68,8 +68,8 @@ const MODEL_ICON_PATTERNS: ModelIconConfig[] = [
     { prefixes: ['grok', 'xai'], Avatar: Grok.Avatar, color: '#000000' },
     // Alibaba - Qwen series
     { prefixes: ['qwen', 'qwq', 'alibaba'], Avatar: Qwen.Avatar, color: '#6B4EFF' },
-    // Zhipu - GLM series
-    { prefixes: ['glm', 'chatglm', 'zhipu', 'z-ai'], Avatar: Zhipu.Avatar, color: '#3C5BFC' },
+    // Z.ai (智谱) - GLM series, 新版 Z 标 logo
+    { prefixes: ['glm', 'chatglm', 'zhipu', 'z-ai'], Avatar: ZAI.Avatar, color: '#000000' },
     // MiniMax series
     { prefixes: ['minimax', 'abab'], Avatar: Minimax.Avatar, color: '#1A1A2E' },
     // Moonshot/Kimi series
