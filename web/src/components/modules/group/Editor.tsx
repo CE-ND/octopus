@@ -453,6 +453,12 @@ function ModelRow({
     addLabel: string;
 }) {
     const { Avatar } = getModelIcon(model.name);
+    // 与右侧已选列表的 sourceLabel 一致：站点渠道显示投影出的
+    // 站点/账号/分组-协议 完整路径，手动渠道补充协议后缀。
+    const isSiteChannel = model.site_id != null;
+    const sourceLabel = [model.channel_name, isSiteChannel ? null : model.endpoint_type?.trim()]
+        .filter(Boolean)
+        .join(' · ');
     return (
         <div
             className={cn(
@@ -471,7 +477,10 @@ function ModelRow({
             >
                 <Avatar size={16} />
                 <span className="min-w-0 flex flex-col">
-                    <span className="text-sm font-medium truncate">{model.name}</span>
+                    <span className="text-sm font-medium truncate leading-tight">{model.name}</span>
+                    {sourceLabel && (
+                        <span className="text-[10px] text-muted-foreground truncate leading-tight">{sourceLabel}</span>
+                    )}
                 </span>
             </button>
 
