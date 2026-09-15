@@ -1,15 +1,14 @@
 'use client';
 
 import { useCallback, useMemo, useState, type FormEvent } from 'react';
-import { Check, ChevronDownIcon, Plus, Search, Sparkles, Trash2 } from 'lucide-react';
+import { Check, ChevronDown, Plus, Search, Sparkles, Trash2 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
-import * as AccordionPrimitive from '@radix-ui/react-accordion';
+import { AnimatePresence, motion } from 'motion/react';
 import { useModelChannelList, type LLMChannel } from '@/api/endpoints/model';
 import { Button } from '@/components/ui/button';
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
-import { Accordion, AccordionContent, AccordionItem } from '@/components/ui/accordion';
 import { cn } from '@/lib/utils';
 import { getModelIcon } from '@/lib/model-icons';
 import { CopyIconButton } from '@/components/common/CopyButton';
@@ -33,6 +32,154 @@ export type GroupEditorValues = {
     members: SelectedMember[];
 };
 
+const MANUAL_SITE_KEY = '__manual__';
+
+type PickerChannelNode = {
+    key: string;
+    label: string; // 分组名-协议（default-Anthropic），手动渠道用 channel_name
+    models: LLMChannel[];
+};
+
+type PickerAccountNode = {
+    key: string;
+    label: string;
+    channels: PickerChannelNode[];
+    modelCount: number;
+};
+
+type PickerSiteNode = {
+    key: string;
+    label: string;
+    accounts: PickerAccountNode[];
+    modelCount: number;
+};
+
+/** 按 站点 → 账号 → 协议渠道 三级分桶；无站点归属的手动渠道归入兜底桶。 */
+function buildSiteTree(modelChannels: LLMChannel[]): PickerSiteNode[] {
+    const siteBuckets = new Map<string, PickerSiteNode>();
+    const manualModels: LLMChannel[] = [];
+
+    const siteKeyOf = (mc: LLMChannel) =>
+        mc.site_id != null ? `site:${mc.site_id}` : `site:${(mc.site_name || '').trim() || 'unknown'}`;
+    // 账号按「站点内名称」合并：同一站点下常存在多个同名账号（重复导入/同步
+    // 产生，id 不同但实际是同一用户），展示层面合并为一个节点，渠道仍按
+    // channel_id 区分。
+    const accountKeyOf = (mc: LLMChannel) => {
+        const name = (mc.site_account_name || '').trim();
+        return name ? `acc:${name}` : 'acc:default';
+    };
+    const channelKeyOf = (mc: LLMChannel) => `ch:${mc.channel_id}`;
+
+    for (const mc of modelChannels) {
+        if (mc.site_id == null && !(mc.site_name || '').trim()) {
+            manualModels.push(mc);
+            continue;
+        }
+        const sKey = siteKeyOf(mc);
+        let site = siteBuckets.get(sKey);
+        if (!site) {
+            site = { key: sKey, label: (mc.site_name || '').trim() || '未知站点', accounts: [], modelCount: 0 };
+            siteBuckets.set(sKey, site);
+        }
+        const aKey = accountKeyOf(mc);
+        // find 的键必须与创建时的复合键一致，否则每行都会新建节点。
+        let account = site.accounts.find((a) => a.key === `${sKey}/${aKey}`);
+        if (!account) {
+            account = { key: `${sKey}/${aKey}`, label: (mc.site_account_name || '').trim() || '默认账号', channels: [], modelCount: 0 };
+            site.accounts.push(account);
+        }
+        const cKey = channelKeyOf(mc);
+        let channel = account.channels.find((c) => c.key === `${aKey}/${cKey}`);
+        if (!channel) {
+            channel = {
+                key: `${aKey}/${cKey}`,
+                label: [mc.site_group_name, mc.endpoint_type].map((v) => v?.trim?.() ?? '').filter(Boolean).join('-') || mc.channel_name,
+                models: [],
+            };
+            account.channels.push(channel);
+        }
+        channel.models.push(mc);
+    }
+
+    const sortByLabel = <T extends { label: string }>(items: T[]) =>
+        [...items].sort((a, b) => a.label.localeCompare(b.label));
+
+    const sites = Array.from(siteBuckets.values()).map((site) => ({
+        ...site,
+        accounts: sortByLabel(site.accounts).map((account) => ({
+            ...account,
+            channels: sortByLabel(account.channels).map((channel) => ({
+                ...channel,
+                models: [...channel.models].sort((a, b) => a.name.localeCompare(b.name)),
+            })),
+            modelCount: account.channels.reduce((acc, c) => acc + c.models.length, 0),
+        })),
+        modelCount: 0,
+    }));
+    for (const site of sites) {
+        site.modelCount = site.accounts.reduce((acc, a) => acc + a.modelCount, 0);
+    }
+
+    if (manualModels.length > 0) {
+        const byChannel = new Map<number, PickerChannelNode>();
+        for (const mc of manualModels) {
+            const cKey = channelKeyOf(mc);
+            let channel = byChannel.get(mc.channel_id);
+            if (!channel) {
+                channel = { key: `${MANUAL_SITE_KEY}/${cKey}`, label: mc.channel_name, models: [] };
+                byChannel.set(mc.channel_id, channel);
+            }
+            channel.models.push(mc);
+        }
+        const channels = sortByLabel(Array.from(byChannel.values())).map((channel) => ({
+            ...channel,
+            models: [...channel.models].sort((a, b) => a.name.localeCompare(b.name)),
+        }));
+        sites.push({
+            key: MANUAL_SITE_KEY,
+            label: '手动渠道',
+            accounts: [{
+                key: `${MANUAL_SITE_KEY}/acc`,
+                label: '手动渠道',
+                channels,
+                modelCount: manualModels.length,
+            }],
+            modelCount: manualModels.length,
+        });
+    }
+    return sites;
+}
+
+/** 站点名/账号名/渠道名/模型名任一命中即保留对应层级。 */
+function filterSiteTree(sites: PickerSiteNode[], normalizedSearch: string): PickerSiteNode[] {
+    if (!normalizedSearch) return sites;
+    const result: PickerSiteNode[] = [];
+    for (const site of sites) {
+        const siteMatch = site.label.toLowerCase().includes(normalizedSearch);
+        const accounts: PickerAccountNode[] = [];
+        for (const account of site.accounts) {
+            const accountMatch = account.label.toLowerCase().includes(normalizedSearch);
+            const channels: PickerChannelNode[] = [];
+            for (const channel of account.channels) {
+                const channelMatch = channel.label.toLowerCase().includes(normalizedSearch);
+                const models = channel.models.filter((m) => m.name.toLowerCase().includes(normalizedSearch));
+                if (siteMatch || accountMatch || channelMatch) {
+                    channels.push(channel);
+                } else if (models.length > 0) {
+                    channels.push({ ...channel, models });
+                }
+            }
+            if (siteMatch || accountMatch || channels.length > 0) {
+                accounts.push({ ...account, channels });
+            }
+        }
+        if (siteMatch || accounts.length > 0) {
+            result.push({ ...site, accounts });
+        }
+    }
+    return result;
+}
+
 function ModelPickerSection({
     modelChannels,
     selectedMembers,
@@ -48,41 +195,26 @@ function ModelPickerSection({
 }) {
     const t = useTranslations('group');
     const [searchKeyword, setSearchKeyword] = useState('');
+    const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
     const selectedKeys = useMemo(() => new Set(selectedMembers.map(memberKey)), [selectedMembers]);
     const normalizedSearch = searchKeyword.trim().toLowerCase();
 
-    const channels = useMemo(() => {
-        const byId = new Map<number, { id: number; name: string; models: LLMChannel[] }>();
-        modelChannels.forEach((mc) => {
-            const existing = byId.get(mc.channel_id);
-            if (existing) existing.models.push(mc);
-            else byId.set(mc.channel_id, { id: mc.channel_id, name: mc.channel_name, models: [mc] });
+    const toggleExpanded = useCallback((key: string) => {
+        setExpanded((current) => {
+            const next = new Set(current);
+            if (next.has(key)) next.delete(key);
+            else next.add(key);
+            return next;
         });
+    }, []);
 
-        return Array.from(byId.values())
-            .map((c) => ({ ...c, models: [...c.models].sort((a, b) => a.name.localeCompare(b.name)) }))
-            .sort((a, b) => a.id - b.id);
-    }, [modelChannels]);
-
-    const filteredChannels = useMemo(() => {
-        if (!normalizedSearch) return channels;
-        return channels.reduce<typeof channels>((acc, channel) => {
-            if (channel.name.toLowerCase().includes(normalizedSearch)) {
-                acc.push(channel);
-                return acc;
-            }
-
-            const models = channel.models.filter((model) => model.name.toLowerCase().includes(normalizedSearch));
-            if (models.length > 0) acc.push({ ...channel, models });
-            return acc;
-        }, []);
-    }, [channels, normalizedSearch]);
-
-    const modelSourceLabel = (model: LLMChannel) => [model.site_name, model.site_account_name, model.site_group_name]
-        .map((value) => value?.trim())
-        .filter(Boolean)
-        .join(' / ');
+    const sites = useMemo(() => buildSiteTree(modelChannels), [modelChannels]);
+    const filteredSites = useMemo(
+        () => filterSiteTree(sites, normalizedSearch),
+        [sites, normalizedSearch]
+    );
+    const forceExpand = normalizedSearch.length > 0;
 
     return (
         <div className="rounded-xl border border-border/50 bg-muted/30 flex flex-col min-h-0">
@@ -119,98 +251,258 @@ function ModelPickerSection({
             </div>
 
             <div className="flex-1 min-h-0 overflow-y-auto p-2">
-                <Accordion type="multiple" className="w-full space-y-2">
-                    {filteredChannels.map((channel) => {
-                        const total = channel.models.length;
-                        const selectedCount = channel.models.reduce(
-                            (acc, m) => acc + (selectedKeys.has(memberKey(m)) ? 1 : 0),
-                            0
-                        );
-                        const available = total - selectedCount;
+                {filteredSites.length === 0 ? (
+                    <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+                        暂无可添加的模型
+                    </div>
+                ) : (
+                    <div className="w-full space-y-1.5">
+                        {filteredSites.map((site) => {
+                            const siteModels = nodeModels(site);
+                            const siteTotal = siteModels.length;
+                            const siteSelected = countSelected(siteModels, selectedKeys);
+                            const siteAvailable = siteTotal - siteSelected;
+                            const siteExpanded = forceExpand || expanded.has(site.key);
 
-                        return (
-                            <AccordionItem key={channel.id} value={`channel-${channel.id}`}>
-                                <AccordionPrimitive.Header className="rounded-lg bg-muted sticky top-0 z-10 flex px-2 overflow-hidden">
-                                    <AccordionPrimitive.Trigger className="flex flex-1 min-w-0 items-center gap-4 py-4 text-left text-sm transition-all outline-none focus-visible:ring-[3px] disabled:pointer-events-none disabled:opacity-50 [&[data-state=open]>svg]:rotate-180">
-                                        <span className="truncate">{channel.name}</span>
-                                        <span className="text-xs text-muted-foreground shrink-0">
-                                            {available}/{total}
-                                        </span>
-                                        <ChevronDownIcon className="text-muted-foreground pointer-events-none size-4 shrink-0 transition-transform duration-200" />
-                                    </AccordionPrimitive.Trigger>
-                                </AccordionPrimitive.Header>
-                                <AccordionContent className="px-2 pt-2">
-                                    <div className="flex flex-col gap-1.5">
-                                        {channel.models.map((m) => {
-                                            const isSelected = selectedKeys.has(memberKey(m));
-                                            const { Avatar } = getModelIcon(m.name);
-                                            const sourceLabel = modelSourceLabel(m);
-                                            const isSiteChannel = m.site_id != null;
-                                            const suffix = [sourceLabel, isSiteChannel ? null : m.endpoint_type?.trim()]
-                                                .filter(Boolean)
-                                                .join(' · ');
-                                            return (
-                                                <div
-                                                    key={memberKey(m)}
-                                                    className={cn(
-                                                        'w-full flex items-center gap-1 rounded-lg border border-border/50 bg-background px-1.5 py-1.5 transition-colors',
-                                                        !isSelected && 'hover:bg-muted'
-                                                    )}
-                                                >
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => !isSelected && onAdd(m)}
-                                                        disabled={isSelected}
-                                                        className={cn(
-                                                            'flex min-w-0 flex-1 items-center gap-2 rounded-md px-1 py-0.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                                                            isSelected ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'
-                                                        )}
-                                                    >
-                                                        <Avatar size={16} />
-                                                        <span className="min-w-0 flex flex-col">
-                                                            <span className="text-sm font-medium truncate">{m.name}</span>
-                                                            {suffix && <span className="text-[10px] text-muted-foreground truncate">{suffix}</span>}
-                                                        </span>
-                                                    </button>
+                            return (
+                                <div key={site.key}>
+                                    <TreeNodeButton
+                                        expanded={siteExpanded}
+                                        onClick={() => toggleExpanded(site.key)}
+                                        label={site.label}
+                                        count={{ available: siteAvailable, total: siteTotal }}
+                                        variant="site"
+                                    />
 
-                                                    <Tooltip side="top" sideOffset={8} align="center">
-                                                        <TooltipTrigger>
-                                                            <CopyIconButton
-                                                                text={m.name}
-                                                                className="shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-background hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                                                copyIconClassName="size-3.5"
-                                                                checkIconClassName="size-3.5 text-primary"
-                                                            />
-                                                        </TooltipTrigger>
-                                                        <TooltipContent>{t('detail.actions.copyName')}</TooltipContent>
-                                                    </Tooltip>
+                                    <AnimatePresence initial={false}>
+                                        {siteExpanded ? (
+                                            <motion.div
+                                                key="site-content"
+                                                initial={{ height: 0, opacity: 0 }}
+                                                animate={{ height: 'auto', opacity: 1 }}
+                                                exit={{ height: 0, opacity: 0 }}
+                                                transition={{ duration: 0.2, ease: 'easeOut' }}
+                                                className="overflow-hidden"
+                                            >
+                                                <div className="mt-1 space-y-1 pl-4">
+                                                    {site.accounts.map((account) => {
+                                                        const accModels = nodeModels(account);
+                                                        const accSelectedCount = countSelected(accModels, selectedKeys);
+                                                        const accAvailable = accModels.length - accSelectedCount;
+                                                        const accExpanded = forceExpand || expanded.has(account.key);
 
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => !isSelected && onAdd(m)}
-                                                        disabled={isSelected}
-                                                        aria-label={isSelected ? m.name : `${t('form.addItem')}: ${m.name}`}
-                                                        className={cn(
-                                                            'shrink-0 rounded-md p-1 text-muted-foreground outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring',
-                                                            isSelected ? 'cursor-not-allowed opacity-60' : 'hover:bg-background hover:text-foreground'
-                                                        )}
-                                                    >
-                                                        {isSelected ? (
-                                                            <Check className="size-4 text-primary" />
-                                                        ) : (
-                                                            <Plus className="size-4" />
-                                                        )}
-                                                    </button>
+                                                        return (
+                                                            <div key={account.key}>
+                                                                <TreeNodeButton
+                                                                    expanded={accExpanded}
+                                                                    onClick={() => toggleExpanded(account.key)}
+                                                                    label={account.label}
+                                                                    count={{ available: accAvailable, total: account.modelCount }}
+                                                                    variant="account"
+                                                                />
+
+                                                                <AnimatePresence initial={false}>
+                                                                    {accExpanded ? (
+                                                                        <motion.div
+                                                                            key="account-content"
+                                                                            initial={{ height: 0, opacity: 0 }}
+                                                                            animate={{ height: 'auto', opacity: 1 }}
+                                                                            exit={{ height: 0, opacity: 0 }}
+                                                                            transition={{ duration: 0.2, ease: 'easeOut' }}
+                                                                            className="overflow-hidden"
+                                                                        >
+                                                                            <div className="mt-1 space-y-1 pl-4">
+                                                                                {account.channels.map((channel) => {
+                                                                                    const chSelected = channel.models.filter((m) => selectedKeys.has(memberKey(m))).length;
+                                                                                    const chAvailable = channel.models.length - chSelected;
+                                                                                    const chExpanded = forceExpand || expanded.has(channel.key);
+
+                                                                                    return (
+                                                                                        <div key={channel.key}>
+                                                                                            <TreeNodeButton
+                                                                                                expanded={chExpanded}
+                                                                                                onClick={() => toggleExpanded(channel.key)}
+                                                                                                label={channel.label}
+                                                                                                count={{ available: chAvailable, total: channel.models.length }}
+                                                                                                variant="channel"
+                                                                                            />
+
+                                                                                            <AnimatePresence initial={false}>
+                                                                                                {chExpanded ? (
+                                                                                                    <motion.div
+                                                                                                        key="channel-content"
+                                                                                                        initial={{ height: 0, opacity: 0 }}
+                                                                                                        animate={{ height: 'auto', opacity: 1 }}
+                                                                                                        exit={{ height: 0, opacity: 0 }}
+                                                                                                        transition={{ duration: 0.2, ease: 'easeOut' }}
+                                                                                                        className="overflow-hidden"
+                                                                                                    >
+                                                                                                        <div className="mt-1 space-y-1 pl-4">
+                                                                                                            {channel.models.map((m) => (
+                                                                                                                <ModelRow
+                                                                                                                    key={memberKey(m)}
+                                                                                                                    model={m}
+                                                                                                                    isSelected={selectedKeys.has(memberKey(m))}
+                                                                                                                    onAdd={onAdd}
+                                                                                                                    copyTooltip={t('detail.actions.copyName')}
+                                                                                                                    addLabel={t('form.addItem')}
+                                                                                                                />
+                                                                                                            ))}
+                                                                                                        </div>
+                                                                                                    </motion.div>
+                                                                                                ) : null}
+                                                                                            </AnimatePresence>
+                                                                                        </div>
+                                                                                    );
+                                                                                })}
+                                                                            </div>
+                                                                        </motion.div>
+                                                                    ) : null}
+                                                                </AnimatePresence>
+                                                            </div>
+                                                        );
+                                                    })}
                                                 </div>
-                                            );
-                                        })}
-                                    </div>
-                                </AccordionContent>
-                            </AccordionItem>
-                        );
-                    })}
-                </Accordion>
+                                            </motion.div>
+                                        ) : null}
+                                    </AnimatePresence>
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
             </div>
+        </div>
+    );
+}
+
+/** 节点下的全部模型（含子层展开），供计数与选中统计直接遍历。 */
+function nodeModels(node: PickerSiteNode | PickerAccountNode | PickerChannelNode): LLMChannel[] {
+    if ('models' in node) return node.models;
+    if ('accounts' in node) return node.accounts.flatMap((a) => nodeModels(a));
+    if ('channels' in node) return node.channels.flatMap((c) => c.models);
+    return [];
+}
+
+function countSelected(models: LLMChannel[], selectedKeys: Set<string>): number {
+    return models.reduce((acc, m) => acc + (selectedKeys.has(memberKey(m)) ? 1 : 0), 0);
+}
+
+function TreeNodeButton({
+    expanded,
+    onClick,
+    label,
+    count,
+    variant,
+}: {
+    expanded: boolean;
+    onClick: () => void;
+    label: string;
+    count: { available: number; total: number };
+    variant: 'site' | 'account' | 'channel';
+}) {
+    const styles = {
+        site: {
+            row: 'w-full flex items-center gap-2 rounded-lg bg-muted px-2 py-2 text-left transition-colors hover:bg-muted/80',
+            text: 'min-w-0 flex-1 truncate text-sm font-semibold text-foreground',
+            count: 'shrink-0 text-xs tabular-nums text-muted-foreground',
+            chevron: 'size-3.5',
+        },
+        account: {
+            row: 'w-full flex items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-muted/60',
+            text: 'min-w-0 flex-1 truncate text-xs font-medium text-foreground/90',
+            count: 'shrink-0 text-[10px] tabular-nums text-muted-foreground',
+            chevron: 'size-3',
+        },
+        channel: {
+            row: 'w-full flex items-center gap-2 rounded-md px-2 py-1 text-left transition-colors hover:bg-muted/40',
+            text: 'min-w-0 flex-1 truncate text-xs text-muted-foreground',
+            count: 'shrink-0 text-[10px] tabular-nums text-muted-foreground/70',
+            chevron: 'size-3',
+        },
+    }[variant];
+
+    return (
+        <button type="button" onClick={onClick} className={styles.row}>
+            <ChevronDown
+                className={cn(
+                    styles.chevron,
+                    'shrink-0 text-muted-foreground transition-transform',
+                    expanded ? '' : '-rotate-90'
+                )}
+            />
+            <span className={styles.text}>{label}</span>
+            <span className={styles.count}>
+                {count.available}/{count.total}
+            </span>
+        </button>
+    );
+}
+
+function ModelRow({
+    model,
+    isSelected,
+    onAdd,
+    copyTooltip,
+    addLabel,
+}: {
+    model: LLMChannel;
+    isSelected: boolean;
+    onAdd: (channel: LLMChannel) => void;
+    copyTooltip: string;
+    addLabel: string;
+}) {
+    const { Avatar } = getModelIcon(model.name);
+    return (
+        <div
+            className={cn(
+                'w-full flex items-center gap-1 rounded-lg border border-border/50 bg-background px-1.5 py-1.5 transition-colors',
+                !isSelected && 'hover:bg-muted'
+            )}
+        >
+            <button
+                type="button"
+                onClick={() => !isSelected && onAdd(model)}
+                disabled={isSelected}
+                className={cn(
+                    'flex min-w-0 flex-1 items-center gap-2 rounded-md px-1 py-0.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                    isSelected ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'
+                )}
+            >
+                <Avatar size={16} />
+                <span className="min-w-0 flex flex-col">
+                    <span className="text-sm font-medium truncate">{model.name}</span>
+                </span>
+            </button>
+
+            <Tooltip side="top" sideOffset={8} align="center">
+                <TooltipTrigger>
+                    <CopyIconButton
+                        text={model.name}
+                        className="shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-background hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        copyIconClassName="size-3.5"
+                        checkIconClassName="size-3.5 text-primary"
+                    />
+                </TooltipTrigger>
+                <TooltipContent>{copyTooltip}</TooltipContent>
+            </Tooltip>
+
+            <button
+                type="button"
+                onClick={() => !isSelected && onAdd(model)}
+                disabled={isSelected}
+                aria-label={isSelected ? model.name : `${addLabel}: ${model.name}`}
+                className={cn(
+                    'shrink-0 rounded-md p-1 text-muted-foreground outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring',
+                    isSelected ? 'cursor-not-allowed opacity-60' : 'hover:bg-background hover:text-foreground'
+                )}
+            >
+                {isSelected ? (
+                    <Check className="size-4 text-primary" />
+                ) : (
+                    <Plus className="size-4" />
+                )}
+            </button>
         </div>
     );
 }
