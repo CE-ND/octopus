@@ -43,6 +43,14 @@ func fetchSiteAccountBalance(ctx context.Context, siteRecord *model.Site, accoun
 		// 智谱未提供公开的余额/套餐用量 API（/v4/users/me/balance 与
 		// /v4/account 均为 404），Coding Plan 余量只能在其控制台查看。
 		return 0, 0, 0
+	case model.SitePlatformDeepSeek:
+		return fetchDeepSeekBalance(ctx, siteRecord, account)
+	case model.SitePlatformMiMo:
+		// MiMo 未提供余额/用量查询 API（/v1/user/balance 与
+		// /v1/users/me/balance 实测均为 404），余额只能在控制台网页查看。
+		return 0, 0, 0
+	case model.SitePlatformKimi:
+		return fetchKimiBalance(ctx, siteRecord, account)
 	default:
 		return 0, 0, 0
 	}
@@ -301,6 +309,93 @@ func isValidUserSelfPayload(payload map[string]any, err error) bool {
 		return true
 	}
 	return false
+}
+
+// fetchDeepSeekBalance 拉取 DeepSeek 官方账户余额
+// （GET /user/balance，与模型列表同一 API key 认证）：
+//
+//	{ "is_available": true,
+//	  "balance_infos": [{ "currency": "CNY", "total_balance": "110.00",
+//	                      "granted_balance": "...", "topped_up_balance": "..." }] }
+//
+// total_balance 是字符串金额（充值+赠金合计），原值返回。octopus 的余额
+// 字段没有币种概念，CNY/USD 账户均按数值展示。
+func fetchDeepSeekBalance(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount) (float64, float64, float64) {
+	token := stripBearerPrefix(resolveDirectToken(account))
+	if token == "" {
+		return 0, 0, 0
+	}
+	payload, err := requestJSON(ctx, siteRecord, http.MethodGet, buildSiteURL(siteRecord.BaseURL, "/user/balance"), nil, map[string]string{"Authorization": ensureBearer(token)}, account)
+	if err != nil || payload == nil {
+		return 0, 0, 0
+	}
+	infos, ok := payload["balance_infos"].([]any)
+	if !ok || len(infos) == 0 {
+		return 0, 0, 0
+	}
+	info, ok := infos[0].(map[string]any)
+	if !ok {
+		return 0, 0, 0
+	}
+	total, parseErr := parseDeepSeekTotalBalance(info)
+	if parseErr != nil {
+		return 0, 0, 0
+	}
+	return total, 0, 0
+}
+
+// parseDeepSeekTotalBalance 从 balance_infos 条目解析 total_balance 字符串金额。
+func parseDeepSeekTotalBalance(info map[string]any) (float64, error) {
+	trimmed := strings.TrimSpace(jsonString(info["total_balance"]))
+	if trimmed == "" {
+		return 0, fmt.Errorf("total_balance is missing")
+	}
+	return strconv.ParseFloat(trimmed, 64)
+}
+
+// fetchKimiBalance 拉取 Moonshot Kimi 开放平台账户余额
+// （GET /v1/users/me/balance，官方文档接口，与模型列表同一 API key 认证）：
+//
+//	{ "code": 0, "status": true, "scode": "...",
+//	  "data": { "available_balance": 12.34, "voucher_balance": 15, ... } }
+//
+// available_balance 为数字型可用余额（单位：元；注意 DeepSeek 是字符串型
+// total_balance）。站点地址统一归一到 OpenAI 兼容 API 根（见
+// kimiOpenAIAPIBaseURL），用户填 /anthropic 或 /v1 路径时不会拼错。
+func fetchKimiBalance(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount) (float64, float64, float64) {
+	token := stripBearerPrefix(resolveDirectToken(account))
+	if token == "" {
+		return 0, 0, 0
+	}
+	apiBase := kimiOpenAIAPIBaseURL(siteRecord.BaseURL)
+	if apiBase == "" {
+		return 0, 0, 0
+	}
+	payload, err := requestJSON(ctx, siteRecord, http.MethodGet, buildSiteURL(apiBase, "/users/me/balance"), nil, map[string]string{"Authorization": ensureBearer(token)}, account)
+	if err != nil || payload == nil {
+		return 0, 0, 0
+	}
+	return parseKimiBalance(payload), 0, 0
+}
+
+// parseKimiBalance 从余额响应解析可用余额：code 非 0 或 status 显式为 false
+// 视为查询失败返回 0（status 缺失不阻断）；available_balance 缺失按 0 处理
+// （余额确可为 0）。
+func parseKimiBalance(payload map[string]any) float64 {
+	if payload == nil {
+		return 0
+	}
+	if code, ok := payload["code"]; ok && jsonFloat(code) != 0 {
+		return 0
+	}
+	if status, ok := payload["status"]; ok && !jsonBool(status) {
+		return 0
+	}
+	data, ok := payload["data"].(map[string]any)
+	if !ok {
+		return 0
+	}
+	return jsonFloat(data["available_balance"])
 }
 
 func fetchSub2APIBalance(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount, accessToken string) (float64, float64) {

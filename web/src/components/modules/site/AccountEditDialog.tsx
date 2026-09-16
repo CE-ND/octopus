@@ -119,6 +119,9 @@ function credentialOptions(platform: SitePlatform) {
             return [SiteCredentialType.AccessToken, SiteCredentialType.APIKey];
         case SitePlatform.API:
         case SitePlatform.Zhipu:
+        case SitePlatform.DeepSeek:
+        case SitePlatform.MiMo:
+        case SitePlatform.Kimi:
             return [SiteCredentialType.AccessToken, SiteCredentialType.APIKey];
         default:
             return [

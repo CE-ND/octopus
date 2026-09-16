@@ -42,6 +42,9 @@ export function sitePlatformSupportsCheckin(platform: Site["platform"]) {
     case SitePlatform.Sub2API:
     case SitePlatform.API:
     case SitePlatform.Zhipu:
+    case SitePlatform.DeepSeek:
+    case SitePlatform.MiMo:
+    case SitePlatform.Kimi:
       return false;
     default:
       return true;

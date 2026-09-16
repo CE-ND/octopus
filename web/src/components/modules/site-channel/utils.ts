@@ -127,8 +127,16 @@ export function platformLabel(platform: SiteChannelCard['platform']) {
             return 'Done Hub';
         case 'sub2api':
             return 'Sub2API';
+        case 'zhipu':
+            return '智谱 GLM';
         case 'api':
             return 'API 直连';
+        case 'deepseek':
+            return 'DeepSeek';
+        case 'mimo':
+            return 'Xiaomi MiMo';
+        case 'kimi':
+            return 'Kimi (Moonshot)';
         default:
             return platform;
     }

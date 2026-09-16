@@ -119,6 +119,9 @@ const PLATFORM_LABELS: Record<SitePlatform, string> = {
   [SitePlatform.DoneHub]: "Done Hub",
   [SitePlatform.Sub2API]: "Sub2API",
   [SitePlatform.Zhipu]: "智谱 GLM",
+  [SitePlatform.DeepSeek]: "DeepSeek",
+  [SitePlatform.MiMo]: "Xiaomi MiMo",
+  [SitePlatform.Kimi]: "Kimi (Moonshot)",
 };
 
 const CREDENTIAL_LABELS: Record<SiteCredentialType, string> = {

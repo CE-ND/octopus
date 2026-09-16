@@ -407,6 +407,24 @@ func buildProjectedChannelBaseURL(siteRecord *model.Site) string {
 		// 端点，原样使用。
 		return zhipuProjectedBaseURL(siteRecord, baseURL)
 	}
+	if siteRecord.Platform == model.SitePlatformDeepSeek {
+		// DeepSeek 的 Anthropic 端点不在 /v1 下：URL 已指明 /anthropic
+		// 时投影 <base>/anthropic/v1（出站拼 /messages），其余沿用
+		// 官方 /v1 兼容别名。
+		return deepseekProjectedBaseURL(siteRecord, baseURL)
+	}
+	if siteRecord.Platform == model.SitePlatformMiMo {
+		// MiMo 与 DeepSeek 同构：Anthropic 端点不在 /v1 下，URL 已指明
+		// /anthropic 时投影 <base>/anthropic/v1（出站拼 /messages），
+		// 其余投影 OpenAI 兼容端点 <base>/v1。
+		return mimoProjectedBaseURL(siteRecord, baseURL)
+	}
+	if siteRecord.Platform == model.SitePlatformKimi {
+		// Kimi 与 DeepSeek/MiMo 同构：Anthropic 端点不在 /v1 下，URL 已
+		// 指明 /anthropic 时投影 <base>/anthropic/v1（出站拼 /messages），
+		// 其余投影 OpenAI 兼容端点 <base>/v1。
+		return kimiProjectedBaseURL(siteRecord, baseURL)
+	}
 	return baseURL + "/v1"
 }
 
@@ -439,6 +457,78 @@ func zhipuProjectedBaseURL(siteRecord *model.Site, baseURL string) string {
 		}
 		return baseURL + "/api/coding/paas/v4"
 	}
+}
+
+// deepseek 官方编程端点到渠道 base URL 的映射：
+//
+//	anthropic        → <base>/anthropic/v1 (outbound 拼 /messages)
+//	openai_chat(默认) → <base>/v1           (outbound 拼 /chat/completions)
+//
+// 与模型拉取一致：URL 已指明端点家族时以 URL 为准，否则按默认协议映射。
+func deepseekProjectedBaseURL(siteRecord *model.Site, baseURL string) string {
+	lowered := strings.ToLower(baseURL)
+	if deepseekResolvedRouteType(siteRecord, baseURL) == model.SiteModelRouteTypeAnthropic {
+		if strings.Contains(lowered, "/anthropic") {
+			if strings.HasSuffix(lowered, "/v1") {
+				return baseURL
+			}
+			return strings.TrimRight(baseURL, "/") + "/v1"
+		}
+		return baseURL + "/anthropic/v1"
+	}
+	if strings.HasSuffix(lowered, "/v1") {
+		return baseURL
+	}
+	return baseURL + "/v1"
+}
+
+// mimo 官方编程端点到渠道 base URL 的映射（与 DeepSeek 同构）：
+//
+//	anthropic        → <base>/anthropic/v1 (outbound 拼 /messages)
+//	openai_chat(默认) → <base>/v1           (outbound 拼 /chat/completions)
+//
+// 与模型拉取一致：URL 已指明端点家族时以 URL 为准，否则按默认协议映射。
+// Token Plan 专属域名（token-plan-{cn,sgp,ams}.xiaomimimo.com）布局相同，
+// 无需特判。
+func mimoProjectedBaseURL(siteRecord *model.Site, baseURL string) string {
+	lowered := strings.ToLower(baseURL)
+	if mimoResolvedRouteType(siteRecord, baseURL) == model.SiteModelRouteTypeAnthropic {
+		if strings.Contains(lowered, "/anthropic") {
+			if strings.HasSuffix(lowered, "/v1") {
+				return baseURL
+			}
+			return strings.TrimRight(baseURL, "/") + "/v1"
+		}
+		return baseURL + "/anthropic/v1"
+	}
+	if strings.HasSuffix(lowered, "/v1") {
+		return baseURL
+	}
+	return baseURL + "/v1"
+}
+
+// kimi 官方编程端点到渠道 base URL 的映射（与 DeepSeek/MiMo 同构）：
+//
+//	anthropic        → <base>/anthropic/v1 (outbound 拼 /messages)
+//	openai_chat(默认) → <base>/v1           (outbound 拼 /chat/completions)
+//
+// 与模型拉取一致：URL 已指明端点家族时以 URL 为准，否则按默认协议映射。
+// api.moonshot.cn 与 api.moonshot.ai 布局相同，无需特判。
+func kimiProjectedBaseURL(siteRecord *model.Site, baseURL string) string {
+	lowered := strings.ToLower(baseURL)
+	if kimiResolvedRouteType(siteRecord, baseURL) == model.SiteModelRouteTypeAnthropic {
+		if strings.Contains(lowered, "/anthropic") {
+			if strings.HasSuffix(lowered, "/v1") {
+				return baseURL
+			}
+			return strings.TrimRight(baseURL, "/") + "/v1"
+		}
+		return baseURL + "/anthropic/v1"
+	}
+	if strings.HasSuffix(lowered, "/v1") {
+		return baseURL
+	}
+	return baseURL + "/v1"
 }
 
 // resolveProjectedChannelBaseURL returns the base URL for a projected channel
@@ -565,7 +655,7 @@ func platformOutboundType(site *model.Site) outbound.OutboundType {
 		// 逻辑一致），否则按站点默认协议。
 		return zhipuOutboundTypeForRoute(zhipuResolvedRouteType(site, site.BaseURL))
 	}
-	if site.Platform == model.SitePlatformAPI {
+	if site.Platform == model.SitePlatformAPI || site.Platform == model.SitePlatformDeepSeek {
 		switch site.ResolveDefaultRouteType() {
 		case model.SiteModelRouteTypeAnthropic:
 			return outbound.OutboundTypeAnthropic

@@ -22,6 +22,17 @@ const (
 	SitePlatformSub2API SitePlatform = "sub2api"
 	SitePlatformZhipu  SitePlatform = "zhipu"
 	SitePlatformAPI     SitePlatform = "api"
+	// DeepSeek 官方开放平台（api.deepseek.com），OpenAI 兼容协议，
+	// 提供 /models 模型列表与 /user/balance 余额查询。
+	SitePlatformDeepSeek SitePlatform = "deepseek"
+	// 小米 MiMo 开放平台（api.xiaomimimo.com 及 token-plan-*.xiaomimimo.com），
+	// OpenAI/Anthropic 双协议；模型列表仅 OpenAI 端点的 /v1/models 提供，
+	// 无余额查询与签到 API。
+	SitePlatformMiMo SitePlatform = "mimo"
+	// Moonshot Kimi 开放平台（api.moonshot.cn 国内 / api.moonshot.ai 国际，
+	// 两站 key 不通用），OpenAI/Anthropic 双协议；模型列表仅 OpenAI 端点的
+	// /v1/models 提供（按 key 权限过滤），余额查询为官方 API，无签到。
+	SitePlatformKimi SitePlatform = "kimi"
 )
 
 type SiteCredentialType string
@@ -551,7 +562,7 @@ func NormalizeSiteSyncTokenValue(value string) string {
 // use their keys verbatim, so they must never have a prefix forced on them.
 func (p SitePlatform) usesSyncTokenSkPrefix() bool {
 	switch p {
-	case SitePlatformAPI, SitePlatformZhipu:
+	case SitePlatformAPI, SitePlatformZhipu, SitePlatformDeepSeek, SitePlatformMiMo, SitePlatformKimi:
 		return false
 	default:
 		return true
@@ -786,7 +797,7 @@ func ParseSiteChannelBindingKey(groupKey string) (string, SiteModelRouteType) {
 
 func ShouldSplitSiteChannelRoutes(platform SitePlatform) bool {
 	switch platform {
-	case SitePlatformAPI, SitePlatformZhipu:
+	case SitePlatformAPI, SitePlatformZhipu, SitePlatformDeepSeek, SitePlatformMiMo, SitePlatformKimi:
 		return false
 	default:
 		return true
@@ -830,7 +841,7 @@ func SiteModelRouteTypeFromOutboundType(t outbound.OutboundType) SiteModelRouteT
 func (p SitePlatform) Validate() error {
 	switch p {
 	case SitePlatformNewAPI, SitePlatformAnyRouter, SitePlatformOneAPI, SitePlatformOneHub, SitePlatformDoneHub,
-		SitePlatformSub2API, SitePlatformZhipu, SitePlatformAPI:
+		SitePlatformSub2API, SitePlatformZhipu, SitePlatformAPI, SitePlatformDeepSeek, SitePlatformMiMo, SitePlatformKimi:
 		return nil
 	default:
 		return fmt.Errorf("unsupported site platform: %s", p)

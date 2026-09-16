@@ -14,6 +14,7 @@ import {
     Yi,
     Kimi,
     Minimax,
+    XiaomiMiMo,
     Doubao,
     Hunyuan,
     Spark,
@@ -74,6 +75,8 @@ const MODEL_ICON_PATTERNS: ModelIconConfig[] = [
     { prefixes: ['minimax', 'abab'], Avatar: Minimax.Avatar, color: '#1A1A2E' },
     // Moonshot/Kimi series
     { prefixes: ['moonshot', 'kimi'], Avatar: Kimi.Avatar, color: '#000000' },
+    // Xiaomi MiMo series
+    { prefixes: ['mimo'], Avatar: XiaomiMiMo.Avatar, color: '#FF6900' },
     // Mistral series
     { prefixes: ['mistral', 'mixtral', 'codestral', 'pixtral'], Avatar: Mistral.Avatar, color: '#F7D046' },
     // Meta - Llama series

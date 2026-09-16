@@ -13,6 +13,9 @@ export enum SitePlatform {
   Sub2API = "sub2api",
   Zhipu = "zhipu",
   API = "api",
+  DeepSeek = "deepseek",
+  MiMo = "mimo",
+  Kimi = "kimi",
 }
 
 export enum SiteCredentialType {

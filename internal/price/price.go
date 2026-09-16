@@ -27,7 +27,11 @@ var Provider = []string{
 	"zhipuai",    // GLM 系列
 	"minimax",    // MiniMax 系列
 	"moonshotai", // Kimi/Moonshot
-	"v0",         // v0 系列
+	"xiaomi",     // MiMo 系列（按量）
+	"xiaomi-token-plan-cn",
+	"xiaomi-token-plan-sgp",
+	"xiaomi-token-plan-ams",
+	"v0", // v0 系列
 }
 
 var lastUpdateTime time.Time

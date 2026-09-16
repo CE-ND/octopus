@@ -21,6 +21,16 @@ var urlPlatformHints = []struct {
 	{"open.bigmodel.cn", model.SitePlatformZhipu, model.SiteModelRouteTypeOpenAIChat},
 	{"api.zhipu.ai", model.SitePlatformZhipu, model.SiteModelRouteTypeOpenAIChat},
 	{"api.z.ai", model.SitePlatformZhipu, model.SiteModelRouteTypeOpenAIChat},
+	// DeepSeek 开放平台没有管理页面特征（首页非 new-api 系标题，
+	// 也无 /api/status），只能靠 URL 短路识别。
+	{"api.deepseek.com", model.SitePlatformDeepSeek, model.SiteModelRouteTypeOpenAIChat},
+	// 小米 MiMo 开放平台同理：域名族短路覆盖按量端点与 Token Plan 三地
+	// 专属端点（api / token-plan-{cn,sgp,ams}.xiaomimimo.com）。
+	{"xiaomimimo.com", model.SitePlatformMiMo, model.SiteModelRouteTypeOpenAIChat},
+	// Moonshot Kimi 开放平台同理：国内 api.moonshot.cn 与国际 api.moonshot.ai
+	// 双域（key 不通用），域名族短路覆盖按量端点与其 /anthropic 兼容路径。
+	{"moonshot.cn", model.SitePlatformKimi, model.SiteModelRouteTypeOpenAIChat},
+	{"moonshot.ai", model.SitePlatformKimi, model.SiteModelRouteTypeOpenAIChat},
 	{"api.openai.com", model.SitePlatformAPI, model.SiteModelRouteTypeOpenAIChat},
 	{"api.anthropic.com", model.SitePlatformAPI, model.SiteModelRouteTypeAnthropic},
 	{"anthropic.com/v1", model.SitePlatformAPI, model.SiteModelRouteTypeAnthropic},

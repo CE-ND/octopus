@@ -258,7 +258,7 @@ func fetchModelsForSiteToken(ctx context.Context, siteRecord *model.Site, accoun
 		channel := model.Channel{Type: fetchOutboundType(siteRecord, baseURL), BaseUrls: []model.BaseUrl{{URL: baseURL, Delay: 0}}, Keys: []model.ChannelKey{{Enabled: true, ChannelKey: tokenValue}}, ProxyMode: proxyMode, ProxyConfigID: proxyConfigID, CustomHeader: siteRecord.CustomHeader}
 		fetched, err := helper.FetchModels(ctx, channel)
 		if err == nil && len(fetched) > 0 {
-			return normalizeModelNames(fetched), nil
+			return filterPlatformModels(siteRecord, normalizeModelNames(fetched)), nil
 		}
 		if err != nil && firstErr == nil {
 			firstErr = err
@@ -271,7 +271,7 @@ func fetchModelsForSiteToken(ctx context.Context, siteRecord *model.Site, accoun
 		if firstErr != nil {
 			return nil, firstErr
 		}
-		return normalizeModelNames(models), nil
+		return filterPlatformModels(siteRecord, normalizeModelNames(models)), nil
 	}
 
 	payload, fallbackErr := requestJSON(ctx, siteRecord, "GET", buildSiteURL(siteRecord.BaseURL, "/api/available_model"), nil, map[string]string{"Authorization": "Bearer " + tokenValue}, account)
@@ -486,6 +486,15 @@ func buildModelFetchBaseURLs(siteRecord *model.Site) []string {
 	if siteRecord.Platform == model.SitePlatformZhipu {
 		return zhipuModelFetchCandidates(siteRecord, baseURL)
 	}
+	if siteRecord.Platform == model.SitePlatformDeepSeek {
+		return deepseekModelFetchCandidates(siteRecord, baseURL)
+	}
+	if siteRecord.Platform == model.SitePlatformMiMo {
+		return mimoModelFetchCandidates(siteRecord, baseURL)
+	}
+	if siteRecord.Platform == model.SitePlatformKimi {
+		return kimiModelFetchCandidates(siteRecord, baseURL)
+	}
 
 	candidates := []string{baseURL}
 	if sitePlatformUsesV1ModelEndpoint(siteRecord) && !strings.HasSuffix(strings.ToLower(baseURL), "/v1") {
@@ -559,12 +568,236 @@ func zhipuModelFetchCandidates(siteRecord *model.Site, baseURL string) []string 
 	}
 }
 
+// deepseekURLRouteType 从 URL 路径识别 DeepSeek 官方端点所属协议。
+// 返回空表示 URL 未指明端点家族（如裸域名），此时由站点默认协议决定。
+//
+//	…/anthropic(/v1)? → anthropic
+//	…/v1              → openai_chat（官方 OpenAI 兼容别名）
+func deepseekURLRouteType(baseURL string) model.SiteModelRouteType {
+	lowered := strings.ToLower(baseURL)
+	switch {
+	case strings.Contains(lowered, "/anthropic"):
+		return model.SiteModelRouteTypeAnthropic
+	case strings.HasSuffix(lowered, "/v1"):
+		return model.SiteModelRouteTypeOpenAIChat
+	default:
+		return ""
+	}
+}
+
+// deepseekResolvedRouteType 返回 DeepSeek 站点的有效协议：URL 已指明端点
+// 家族时以 URL 为准（用户直接粘官方端点 URL 时协议下拉往往不再改动），
+// 否则回退站点默认协议。仅用于对话渠道的投影与出站，模型列表与此无关。
+func deepseekResolvedRouteType(siteRecord *model.Site, baseURL string) model.SiteModelRouteType {
+	if rt := deepseekURLRouteType(baseURL); rt != "" {
+		return rt
+	}
+	return siteRecord.ResolveDefaultRouteType()
+}
+
+// deepseek 官方编程端点：
+//
+//	OpenAI Chat  https://api.deepseek.com            (模型列表在 /models，/v1 为官方兼容别名)
+//	Anthropic    https://api.deepseek.com/anthropic  (仅 messages；官方未提供模型列表，实测 404)
+//
+// deepseekModelFetchCandidates 返回模型列表候选端点。Anthropic 端点没有
+// 模型列表，因此无论站点协议如何，列表统一从 OpenAI 兼容端点拉取（同一
+// 账户同一份模型列表）；对话渠道仍按站点协议投影（见 deepseekProjectedBaseURL）。
+func deepseekModelFetchCandidates(siteRecord *model.Site, baseURL string) []string {
+	return deepseekOpenAIModelFetchURLs(baseURL)
+}
+
+// deepseekOpenAIModelFetchURLs 返回 DeepSeek OpenAI 兼容端点上的模型列表
+// 候选：已填 /v1 别名的视为完整端点；站点地址指向 /anthropic 路径时，
+// OpenAI 端点在其裸域名上。
+func deepseekOpenAIModelFetchURLs(baseURL string) []string {
+	trimmed := strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if trimmed == "" {
+		return nil
+	}
+	if idx := strings.Index(strings.ToLower(trimmed), "/anthropic"); idx > 0 {
+		trimmed = strings.TrimRight(trimmed[:idx], "/")
+	}
+	if trimmed == "" {
+		return nil
+	}
+	if strings.HasSuffix(strings.ToLower(trimmed), "/v1") {
+		return []string{trimmed}
+	}
+	return []string{trimmed, trimmed + "/v1"}
+}
+
+// mimoURLRouteType 从 URL 路径识别小米 MiMo 官方端点所属协议。
+// 返回空表示 URL 未指明端点家族（如裸域名），此时由站点默认协议决定。
+//
+//	…/anthropic(/v1)? → anthropic
+//	…/v1              → openai_chat（官方 OpenAI 兼容端点本身）
+func mimoURLRouteType(baseURL string) model.SiteModelRouteType {
+	lowered := strings.ToLower(baseURL)
+	switch {
+	case strings.Contains(lowered, "/anthropic"):
+		return model.SiteModelRouteTypeAnthropic
+	case strings.HasSuffix(lowered, "/v1"):
+		return model.SiteModelRouteTypeOpenAIChat
+	default:
+		return ""
+	}
+}
+
+// mimoResolvedRouteType 返回 MiMo 站点的有效协议：URL 已指明端点家族时以
+// URL 为准（用户直接粘官方端点 URL 时协议下拉往往不再改动），否则回退
+// 站点默认协议。仅用于对话渠道的投影与出站，模型列表与此无关。
+func mimoResolvedRouteType(siteRecord *model.Site, baseURL string) model.SiteModelRouteType {
+	if rt := mimoURLRouteType(baseURL); rt != "" {
+		return rt
+	}
+	return siteRecord.ResolveDefaultRouteType()
+}
+
+// mimo 官方编程端点：
+//
+//	OpenAI Chat  https://api.xiaomimimo.com/v1           (模型列表在 /v1/models；裸域名 /models 404)
+//	Anthropic    https://api.xiaomimimo.com/anthropic    (仅 /anthropic/v1/messages；无模型列表，实测 404)
+//	Token Plan   https://token-plan-{cn,sgp,ams}.xiaomimimo.com/{v1,anthropic}（tp- key 专属，布局同上）
+//
+// mimoModelFetchCandidates 返回模型列表候选端点。模型列表只存在于 OpenAI
+// 兼容端点的 /v1/models，因此无论站点协议如何，列表统一从该端点拉取（同一
+// 账户同一份模型列表，含 ASR/TTS，由 filterPlatformModels 过滤）；对话渠道
+// 仍按站点协议投影（见 mimoProjectedBaseURL）。
+func mimoModelFetchCandidates(siteRecord *model.Site, baseURL string) []string {
+	return mimoOpenAIModelFetchURLs(baseURL)
+}
+
+// mimoOpenAIModelFetchURLs 返回 MiMo OpenAI 兼容端点上的模型列表地址：
+// 已填 /v1 的视为完整端点；站点地址指向 /anthropic 路径或裸域名时，模型
+// 列表在裸域名的 /v1 上（MiMo 没有裸域名 /models 别名，实测 404）。
+func mimoOpenAIModelFetchURLs(baseURL string) []string {
+	trimmed := strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if trimmed == "" {
+		return nil
+	}
+	if idx := strings.Index(strings.ToLower(trimmed), "/anthropic"); idx > 0 {
+		trimmed = strings.TrimRight(trimmed[:idx], "/")
+	}
+	if trimmed == "" {
+		return nil
+	}
+	if strings.HasSuffix(strings.ToLower(trimmed), "/v1") {
+		return []string{trimmed}
+	}
+	return []string{trimmed + "/v1"}
+}
+
+// kimiURLRouteType 从 URL 路径识别 Moonshot Kimi 官方端点所属协议。
+// 返回空表示 URL 未指明端点家族（如裸域名），此时由站点默认协议决定。
+//
+//	…/anthropic(/v1)? → anthropic
+//	…/v1              → openai_chat（官方 OpenAI 兼容端点本身）
+func kimiURLRouteType(baseURL string) model.SiteModelRouteType {
+	lowered := strings.ToLower(baseURL)
+	switch {
+	case strings.Contains(lowered, "/anthropic"):
+		return model.SiteModelRouteTypeAnthropic
+	case strings.HasSuffix(lowered, "/v1"):
+		return model.SiteModelRouteTypeOpenAIChat
+	default:
+		return ""
+	}
+}
+
+// kimiResolvedRouteType 返回 Kimi 站点的有效协议：URL 已指明端点家族时以
+// URL 为准（用户直接粘官方端点 URL 时协议下拉往往不再改动），否则回退
+// 站点默认协议。仅用于对话渠道的投影与出站，模型列表与此无关。
+func kimiResolvedRouteType(siteRecord *model.Site, baseURL string) model.SiteModelRouteType {
+	if rt := kimiURLRouteType(baseURL); rt != "" {
+		return rt
+	}
+	return siteRecord.ResolveDefaultRouteType()
+}
+
+// kimi 官方编程端点（api.moonshot.cn 国内 / api.moonshot.ai 国际，布局相同）：
+//
+//	OpenAI Chat  https://api.moonshot.cn/v1        (模型列表在 /v1/models，按 key 权限过滤)
+//	Anthropic    https://api.moonshot.cn/anthropic (仅 /anthropic/v1/messages；无模型列表，实测 404)
+//
+// kimiModelFetchCandidates 返回模型列表候选端点。模型列表只存在于 OpenAI
+// 兼容端点的 /v1/models，因此无论站点协议如何，列表统一从该端点拉取（同一
+// 账户同一份模型列表，无权限的模型本就不在列表内，无需平台过滤）；对话
+// 渠道仍按站点协议投影（见 kimiProjectedBaseURL）。
+func kimiModelFetchCandidates(siteRecord *model.Site, baseURL string) []string {
+	return kimiOpenAIModelFetchURLs(baseURL)
+}
+
+// kimiOpenAIAPIBaseURL 归一 Kimi 站点地址到 OpenAI 兼容 API 根（以 /v1 结尾）：
+// 已填 /v1 的视为完整根；地址指向 /anthropic 路径时 API 根在其裸域名上。
+// 模型列表与余额查询共用该归一，避免 /v1 重复拼接。
+func kimiOpenAIAPIBaseURL(baseURL string) string {
+	trimmed := strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if trimmed == "" {
+		return ""
+	}
+	if idx := strings.Index(strings.ToLower(trimmed), "/anthropic"); idx > 0 {
+		trimmed = strings.TrimRight(trimmed[:idx], "/")
+	}
+	if trimmed == "" {
+		return ""
+	}
+	if strings.HasSuffix(strings.ToLower(trimmed), "/v1") {
+		return trimmed
+	}
+	return trimmed + "/v1"
+}
+
+// kimiOpenAIModelFetchURLs 返回 Kimi OpenAI 兼容端点上的模型列表地址
+// （单候选；Moonshot 未提供裸域名 /models 别名）。
+func kimiOpenAIModelFetchURLs(baseURL string) []string {
+	apiBase := kimiOpenAIAPIBaseURL(baseURL)
+	if apiBase == "" {
+		return nil
+	}
+	return []string{apiBase}
+}
+
+// filterPlatformModels 应用平台级模型过滤：部分官方平台会在模型列表里
+// 返回非对话模型，投影成对话渠道只会产生不可用渠道，按平台剔除。kimi 的
+// /v1/models 按 key 权限过滤（无权限模型本就不在列表），无需注册。
+func filterPlatformModels(siteRecord *model.Site, names []string) []string {
+	if siteRecord == nil {
+		return names
+	}
+	switch siteRecord.Platform {
+	case model.SitePlatformMiMo:
+		return mimoChatModelNames(names)
+	default:
+		return names
+	}
+}
+
+// mimoChatModelNames 剔除 MiMo /v1/models 返回的非对话模型。官方列表把
+// ASR（mimo-v2.5-asr）与 TTS（mimo-v2.5-tts / …-voiceclone / …-voicedesign）
+// 一并列出，但它们不走 /chat/completions，不能投影为对话渠道。
+func mimoChatModelNames(names []string) []string {
+	filtered := make([]string, 0, len(names))
+	for _, name := range names {
+		lowered := strings.ToLower(name)
+		if strings.HasSuffix(lowered, "-asr") || strings.Contains(lowered, "-tts") {
+			continue
+		}
+		filtered = append(filtered, name)
+	}
+	return filtered
+}
+
 // fetchOutboundType 返回拉取单个候选端点模型列表时使用的出站协议：
 // zhipu 以 URL 端点家族优先（用户直接粘官方端点 URL 时协议可能仍停留在
-// 旧值），其余平台沿用站点级协议。
+// 旧值）；deepseek、mimo 与 kimi 的列表统一走 OpenAI 兼容端点；其余平台
+// 沿用站点级协议。
 func fetchOutboundType(siteRecord *model.Site, baseURL string) outbound.OutboundType {
 	if siteRecord.Platform == model.SitePlatformZhipu {
 		return zhipuOutboundTypeForRoute(zhipuResolvedRouteType(siteRecord, baseURL))
+	}
+	if siteRecord.Platform == model.SitePlatformDeepSeek || siteRecord.Platform == model.SitePlatformMiMo || siteRecord.Platform == model.SitePlatformKimi {
+		return outbound.OutboundTypeOpenAIChat
 	}
 	return platformOutboundType(siteRecord)
 }
