@@ -47,6 +47,11 @@ jobs:
       - name: Install desktop dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Sync version from tag
+        env:
+          RELEASE_VERSION: ${{ github.ref_name }}
+        run: node scripts/sync-release-version.js
+
       - name: Prepare desktop assets
         env:
           OCTOPUS_DESKTOP_GOOS: darwin
@@ -65,18 +70,11 @@ jobs:
           codesign --verify --deep --strict --verbose=2 "$app_path"
           codesign --display --verbose=2 "$app_path"
 
-      - name: Generate checksum
-        run: |
-          dmg_file=$(find dist/desktop -maxdepth 1 -name 'Octopus-*-mac-${{ matrix.electron_arch }}.dmg' -print -quit)
-          test -n "$dmg_file"
-          shasum -a 256 "$dmg_file" > "${dmg_file}.sha256"
-
       - name: Upload macOS desktop release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             dist/desktop/*.dmg
-            dist/desktop/*.dmg.sha256
           prerelease: false
           generate_release_notes: false
           tag_name: ${{ github.ref_name }}
@@ -141,25 +139,21 @@ jobs:
       - name: Install desktop dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Sync version from tag
+        env:
+          RELEASE_VERSION: ${{ github.ref_name }}
+        run: node scripts/sync-release-version.js
+
       - name: Build Windows installers
         env:
           OCTOPUS_DESKTOP_GOOS: windows
           OCTOPUS_DESKTOP_GOARCH: amd64
         run: pnpm desktop:dist:custom
 
-      - name: Generate checksum
-        shell: pwsh
-        run: |
-          $customInstaller = Get-ChildItem 'dist/installer-ui/Octopus Custom Setup *.exe' | Select-Object -First 1
-          if (-not $customInstaller) { throw 'Custom Windows installer not found' }
-          $customHash = (Get-FileHash -Algorithm SHA256 $customInstaller.FullName).Hash.ToLowerInvariant()
-          "$customHash  $($customInstaller.Name)" | Set-Content "$($customInstaller.FullName).sha256"
-
       - name: Upload Windows desktop release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             dist/installer-ui/*.exe
-            dist/installer-ui/*.exe.sha256
           prerelease: false
           tag_name: ${{ github.ref_name }}

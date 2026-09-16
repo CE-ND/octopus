@@ -69,13 +69,6 @@ To open it for the first time:
 3. Find the message about Octopus and click **Open Anyway**.
 4. Confirm the action with the macOS login password or Touch ID.
 
-The release also includes a `.dmg.sha256` file for each DMG. Verify it before
-installing with:
-
-```bash
-shasum -a 256 -c Octopus-<version>-mac-<arch>.dmg.sha256
-```
-
 Build an ad-hoc signed package locally on macOS:
 
 ```bash
