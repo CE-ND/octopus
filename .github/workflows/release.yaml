@@ -10,51 +10,8 @@ permissions:
   packages: write
 
 jobs:
-  release:
-    name: release-binaries
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-
-      - name: Setup Go
-        uses: actions/setup-go@v6
-        with:
-          go-version: 'stable'
-
-      - name: Setup Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.13'
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 'latest'
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 'latest'
-          cache: 'pnpm'
-          cache-dependency-path: web/pnpm-lock.yaml
-
-      - name: Build cross-platform binaries
-        run: bash scripts/build.sh release
-
-      - name: Upload binary release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: build/archives/*
-          generate_release_notes: true
-          prerelease: false
-          tag_name: ${{ github.ref_name }}
-
   desktop-macos:
     name: desktop-macos-${{ matrix.electron_arch }}
-    needs: release
     runs-on: macos-latest
     strategy:
       fail-fast: false
@@ -121,11 +78,42 @@ jobs:
             dist/desktop/*.dmg
             dist/desktop/*.dmg.sha256
           prerelease: false
+          generate_release_notes: false
           tag_name: ${{ github.ref_name }}
+          body: |
+            ## ✨ 新功能
+
+            ### 新增官方直连平台支持
+            接入三家 LLM 官方开放平台，支持 OpenAI / Anthropic 双协议自动投影，同步模型列表与账户余额：
+
+            - **DeepSeek**（api.deepseek.com）— OpenAI 兼容 + Anthropic 端点，`/user/balance` 余额查询，`deepseek-chat` / `deepseek-reasoner` 等模型
+            - **小米 MiMo**（api.xiaomimimo.com）— 双协议端点，支持 Token Plan 三地专属域名（`token-plan-{cn,sgp,ams}.xiaomimimo.com`），`mimo-v2.5` / `mimo-v2.5-pro` 模型，ASR/TTS 非对话模型自动过滤
+            - **Kimi / Moonshot**（api.moonshot.cn 国内 / api.moonshot.ai 国际）— 双协议端点，官方 `/v1/users/me/balance` 余额查询（四家官方直连平台中首个真实余额接口），模型列表按 API Key 权限自动过滤，`kimi-k2.6` / `kimi-k2.7-code` 等模型
+
+            ### 智谱 GLM Coding Plan 接入
+            新增智谱 `api.z.ai` 域名识别，接入 GLM Coding Plan 端点家族（`/api/coding/paas/v4`、`/api/anthropic`、`/api/v1`），`Z.ai` 新版品牌 Logo 同步更新。
+
+            ### 会话识别增强
+            - 新增 **Codex CLI** 和 **Claude Code** 客户端的会话绑定识别
+            - 日志记录并展示请求命中的**路由分组**，便于排查负载均衡行为
+
+            ### 分组编辑模型列表重构
+            模型选择界面重构为**站点 → 账号 → 协议渠道**三级树形结构，每层展示模型来源路径，同时支持从 models.dev 同步 LLM 价格信息。
+
+            ## 🐛 修复
+
+            - 修复 site 测试时间戳字面量在 Go 1.26 下的整型溢出问题
+            - 修复 transformer 对字符串类型错误码的兼容性
+            - 日志清理后自动压缩 SQLite 数据库，防止体积膨胀
+            - 限制日志存储内容大小，及时清理历史数据
+
+            ## 📦 依赖升级
+
+            - `@lobehub/icons` 2.48.0 → 5.18.0，补齐 `@lobehub/ui` 5.x 和 `antd` 6.x peer 依赖
+            - MiMo 模型图标通过 `XiaomiMiMo.Avatar` 渲染（小米橙 #FF6900）
 
   desktop-windows:
     name: desktop-windows-x64
-    needs: release
     runs-on: windows-latest
     steps:
       - name: Checkout
@@ -162,10 +150,6 @@ jobs:
       - name: Generate checksum
         shell: pwsh
         run: |
-          $installer = Get-ChildItem dist/desktop/Octopus-*-windows-x64-setup.exe | Select-Object -First 1
-          if (-not $installer) { throw 'Windows installer not found' }
-          $hash = (Get-FileHash -Algorithm SHA256 $installer.FullName).Hash.ToLowerInvariant()
-          "$hash  $($installer.Name)" | Set-Content "$($installer.FullName).sha256"
           $customInstaller = Get-ChildItem 'dist/installer-ui/Octopus Custom Setup *.exe' | Select-Object -First 1
           if (-not $customInstaller) { throw 'Custom Windows installer not found' }
           $customHash = (Get-FileHash -Algorithm SHA256 $customInstaller.FullName).Hash.ToLowerInvariant()
@@ -175,145 +159,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/desktop/*.exe
-            dist/desktop/*.exe.sha256
             dist/installer-ui/*.exe
             dist/installer-ui/*.exe.sha256
           prerelease: false
           tag_name: ${{ github.ref_name }}
-
-  desktop-linux:
-    name: desktop-linux-${{ matrix.electron_arch }}
-    needs: release
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - electron_arch: arm64
-            goarch: arm64
-          - electron_arch: x64
-            goarch: amd64
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-
-      - name: Setup Go
-        uses: actions/setup-go@v6
-        with:
-          go-version: 'stable'
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 'latest'
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 'latest'
-          cache: 'pnpm'
-          cache-dependency-path: pnpm-lock.yaml
-
-      - name: Install desktop dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Prepare desktop assets
-        env:
-          OCTOPUS_DESKTOP_GOOS: linux
-          OCTOPUS_DESKTOP_GOARCH: ${{ matrix.goarch }}
-        run: pnpm desktop:prepare
-
-      - name: Build Linux AppImage
-        run: pnpm exec electron-builder --linux AppImage --${{ matrix.electron_arch }} --publish never
-
-      - name: Generate checksum
-        run: |
-          appimage_file=$(find dist/desktop -maxdepth 1 -name 'Octopus-*-linux-*.AppImage' -print -quit)
-          test -n "$appimage_file"
-          sha256sum "$appimage_file" > "${appimage_file}.sha256"
-
-      - name: Upload Linux desktop release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            dist/desktop/*.AppImage
-            dist/desktop/*.AppImage.sha256
-          prerelease: false
-          tag_name: ${{ github.ref_name }}
-
-  docker:
-    name: docker-images
-    needs: release
-    continue-on-error: true
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-
-      - name: Docker meta (Debian)
-        id: meta-debian
-        uses: docker/metadata-action@v5
-        with:
-          images: |
-            ghcr.io/${{ github.repository }}
-            ${{ secrets.DOCKERHUB_USERNAME }}/${{ github.event.repository.name }}
-          tags: |
-            type=raw,value=latest
-            type=raw,value=${{ github.ref_name }}
-
-      - name: Docker meta (Alpine)
-        id: meta-alpine
-        uses: docker/metadata-action@v5
-        with:
-          images: |
-            ghcr.io/${{ github.repository }}
-            ${{ secrets.DOCKERHUB_USERNAME }}/${{ github.event.repository.name }}
-          tags: |
-            type=raw,value=latest-alpine
-            type=raw,value=${{ github.ref_name }}-alpine
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Build and push Alpine
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./scripts/dockerfiles/Dockerfile.alpine
-          push: true
-          platforms: linux/amd64,linux/i386,linux/arm64,linux/arm/v7
-          tags: ${{ steps.meta-alpine.outputs.tags }}
-          labels: ${{ steps.meta-alpine.outputs.labels }}
-          build-args: |
-            TARGETPLATFORM
-
-      - name: Build and push Debian
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./scripts/dockerfiles/Dockerfile.debian
-          push: true
-          platforms: linux/amd64,linux/i386,linux/arm64,linux/arm/v7
-          tags: ${{ steps.meta-debian.outputs.tags }}
-          labels: ${{ steps.meta-debian.outputs.labels }}
-          build-args: |
-            TARGETPLATFORM
