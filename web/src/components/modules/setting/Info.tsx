@@ -1,15 +1,30 @@
 'use client';
 
+import { useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { Info, Tag, Github, AlertTriangle, Loader2 } from 'lucide-react';
+import { Info, Tag, Github, AlertTriangle, Loader2, Globe } from 'lucide-react';
 import { APP_VERSION, GITHUB_REPO } from '@/lib/info';
 import { useNowVersion } from '@/api/endpoints/update';
+import { API_BASE_URL } from '@/api/client';
+import { CopyIconButton } from '@/components/common/CopyButton';
 import { Button } from '@/components/ui/button';
 import { isOctopusCacheName, isFontCacheName, SW_MESSAGE_TYPE } from '@/lib/sw';
+
+// 解析对客户端暴露的完整请求地址（OpenAI 兼容端点前缀）：
+// 显式配置了后端地址（开发模式）时用配置值，否则前端由后端托管、与页面同源
+// 组件经 ContentLoader 客户端动态加载，初始化时 window 必然可用；SSG 预渲染兜底返回空串
+function resolveRelayBaseUrl(): string {
+    if (API_BASE_URL && API_BASE_URL !== '.') {
+        return `${API_BASE_URL.replace(/\/+$/, '')}/v1`;
+    }
+    if (typeof window === 'undefined') return '';
+    return `${window.location.origin}/v1`;
+}
 
 export function SettingInfo() {
     const t = useTranslations('setting');
     const nowVersionQuery = useNowVersion();
+    const [relayBaseUrl] = useState(() => resolveRelayBaseUrl());
 
     const backendNowVersion = nowVersionQuery.data || '';
 
@@ -63,6 +78,26 @@ export function SettingInfo() {
                 >
                     {GITHUB_REPO.replace('https://github.com/', '')}
                 </a>
+            </div>
+            {/* 请求地址 */}
+            <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                    <Globe className="h-5 w-5 text-muted-foreground" />
+                    <span className="text-sm font-medium">{t('info.requestUrl')}</span>
+                </div>
+                <div className="flex items-center gap-1">
+                    <code className="text-sm font-mono text-muted-foreground">
+                        {relayBaseUrl || t('info.unknown')}
+                    </code>
+                    {relayBaseUrl && (
+                        <CopyIconButton
+                            text={relayBaseUrl}
+                            className="p-1 rounded-md transition-colors hover:bg-muted text-muted-foreground hover:text-foreground"
+                            copyIconClassName="size-3.5"
+                            checkIconClassName="size-3.5 text-primary"
+                        />
+                    )}
+                </div>
             </div>
             {/* 当前版本 */}
             <div className="flex items-center justify-between gap-4">
