@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
     ArrowDownWideNarrow,
     ArrowDownZA,
@@ -20,6 +20,7 @@ import {
     X
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { useQueryClient } from '@tanstack/react-query';
 import {
     MorphingDialog,
     MorphingDialogTrigger,
@@ -97,6 +98,7 @@ export function Toolbar() {
     const tProxyPool = useTranslations('proxyPool');
     const tCodexRouting = useTranslations('group.codexRouting');
     const { activeItem } = useNavStore();
+    const queryClient = useQueryClient();
     const toolbarItem = isToolbarPage(activeItem) ? activeItem : null;
     const searchTerm = useSearchStore((s) => (toolbarItem ? s.searchTerms[toolbarItem] || '' : ''));
     const setSearchTerm = useSearchStore((s) => s.setSearchTerm);
@@ -133,6 +135,22 @@ export function Toolbar() {
     const [createDialogOpen, setCreateDialogOpen] = useState(false);
     const [autoGroupDialogOpen, setAutoGroupDialogOpen] = useState(false);
     const [codexRoutingOpen, setCodexRoutingOpen] = useState(false);
+    const [isGroupRefreshing, setIsGroupRefreshing] = useState(false);
+    // 每次点击累加一圈：本地刷新很快，仅靠 pending 转圈肉眼不可见，
+    // 用一次性旋转保证点击必有可感知的反馈
+    const [groupSpinCount, setGroupSpinCount] = useState(0);
+
+    const handleGroupRefresh = useCallback(() => {
+        setGroupSpinCount((count) => count + 1);
+        setIsGroupRefreshing(true);
+        // 强制刷新分组页依赖的全部数据：分组列表/预设/自动分组配置、模型-渠道归属、投影渠道
+        Promise.all([
+            queryClient.invalidateQueries({ queryKey: ['groups'] }),
+            queryClient.invalidateQueries({ queryKey: ['models', 'channel'] }),
+            queryClient.invalidateQueries({ queryKey: ['channels', 'list'] }),
+            queryClient.invalidateQueries({ queryKey: ['site-channel', 'list'] }),
+        ]).finally(() => setIsGroupRefreshing(false));
+    }, [queryClient]);
 
     const searchExpanded = expandedSearchItem === toolbarItem;
 
@@ -207,6 +225,22 @@ export function Toolbar() {
                     priority: 'large',
                 },
                 {
+                    id: 'refresh-group',
+                    icon: (
+                        <motion.span
+                            className="inline-flex"
+                            animate={{ rotate: groupSpinCount * 360 }}
+                            transition={{ duration: 1, ease: 'linear' }}
+                        >
+                            <RefreshCw className={cn('size-4', isGroupRefreshing && 'animate-spin')} />
+                        </motion.span>
+                    ),
+                    label: '刷新',
+                    onClick: handleGroupRefresh,
+                    disabled: isGroupRefreshing,
+                    priority: 'desktop',
+                },
+                {
                     id: 'create-group',
                     icon: <Plus className="size-4" />,
                     label: '新增分组',
@@ -244,6 +278,9 @@ export function Toolbar() {
         toolbarItem,
         activeChannelTab,
         completionPendingCount,
+        isGroupRefreshing,
+        groupSpinCount,
+        handleGroupRefresh,
         isLogRefreshing,
         openProxyPool,
         requestOpenCreateSite,

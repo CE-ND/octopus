@@ -4,6 +4,7 @@ import { type ReactNode } from 'react';
 import { MoreHorizontal } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { buttonVariants } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/animate-ui/components/animate/tooltip';
 import { cn } from '@/lib/utils';
 
 export type ToolbarAction = {
@@ -169,29 +170,33 @@ export function ToolbarMenu({ actions }: ToolbarMenuProps) {
 // 按钮渲染（图标模式）
 function ActionButton({ action }: { action: ToolbarAction }) {
     return (
-        <button
-            type="button"
-            onClick={action.onClick}
-            disabled={action.disabled}
-            aria-label={action.label}
-            title={action.label}
-            className={cn(
-                buttonVariants({
-                    variant: 'ghost',
-                    size: 'icon',
-                    className:
-                        'rounded-xl transition-none hover:bg-transparent text-muted-foreground hover:text-foreground relative',
-                }),
-                action.disabled && 'opacity-50 cursor-not-allowed',
-            )}
-        >
-            {action.icon}
-            {action.badge !== undefined && action.badge > 0 && (
-                <span className="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-primary-foreground">
-                    {action.badge > 99 ? '99+' : action.badge}
-                </span>
-            )}
-        </button>
+        <Tooltip side="bottom" sideOffset={8}>
+            <TooltipTrigger asChild>
+                <button
+                    type="button"
+                    onClick={action.onClick}
+                    disabled={action.disabled}
+                    aria-label={action.label}
+                    className={cn(
+                        buttonVariants({
+                            variant: 'ghost',
+                            size: 'icon',
+                            className:
+                                'rounded-xl transition-none hover:bg-transparent text-muted-foreground hover:text-foreground relative',
+                        }),
+                        action.disabled && 'opacity-50 cursor-not-allowed',
+                    )}
+                >
+                    {action.icon}
+                    {action.badge !== undefined && action.badge > 0 && (
+                        <span className="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-primary-foreground">
+                            {action.badge > 99 ? '99+' : action.badge}
+                        </span>
+                    )}
+                </button>
+            </TooltipTrigger>
+            <TooltipContent>{action.label}</TooltipContent>
+        </Tooltip>
     );
 }
 
