@@ -9,6 +9,7 @@ import { useTranslations } from 'next-intl';
 import { cn } from '@/lib/utils';
 import { toast } from '@/components/common/Toast';
 import { CopyIconButton } from '@/components/common/CopyButton';
+import { Switch } from '@/components/ui/switch';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/animate-ui/components/animate/tooltip';
 import type { SelectedMember } from './ItemList';
 import { MemberList } from './ItemList';
@@ -301,6 +302,29 @@ export function GroupCard({ group }: { group: Group }) {
                 </div>
 
                 <div className="flex items-center gap-1 shrink-0">
+                    <Tooltip side="top" sideOffset={10} align="center">
+                        <TooltipTrigger asChild>
+                            <span className="inline-flex items-center p-1.5 cursor-pointer">
+                                <Switch
+                                    checked={group.sanitize_history ?? false}
+                                    onCheckedChange={(checked) => {
+                                        if (!group.id || updateGroup.isPending) return;
+                                        updateGroup.mutate(
+                                            { id: group.id, sanitize_history: checked },
+                                            { onSuccess, onError },
+                                        );
+                                    }}
+                                />
+                            </span>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                            <div className="max-w-64 text-balance space-y-1">
+                                <p className="font-medium">{t('card.sanitizeHistory.label')}</p>
+                                <p className="opacity-80">{t('card.sanitizeHistory.hint')}</p>
+                            </div>
+                        </TooltipContent>
+                    </Tooltip>
+
                     <Tooltip side="top" sideOffset={10} align="center">
                         <TooltipTrigger asChild>
                             <button

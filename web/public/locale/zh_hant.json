@@ -386,6 +386,7 @@
         },
         "info": {
             "title": "版本資訊",
+            "requestUrl": "請求地址",
             "currentVersion": "當前版本",
             "buildTime": "建構時間",
             "publishedAt": "發布時間",
@@ -566,7 +567,11 @@
             "submitting": "建立中..."
         },
         "card": {
-            "empty": "暫無規則"
+            "empty": "暫無規則",
+            "sanitizeHistory": {
+                "label": "Responses 歷史清洗",
+                "hint": "僅對 GPT 系模型（gpt-* / codex-*）生效：開啟後自動清除請求歷史中的伺服器端引用（previous_response_id、裸 reasoning、item_reference 等），用於規避聚合站後端資源輪換導致的 400（created under a different resource）。正文與工具呼叫保留，部分推理上下文會捨棄。"
+            }
         },
         "detail": {
             "actions": {

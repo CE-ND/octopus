@@ -37,6 +37,7 @@ export interface Group {
     session_keep_time?: number;
     retry_enabled?: boolean;
     max_retries?: number;
+    sanitize_history?: boolean;
     pinned?: boolean;
     pinned_at?: string | null;
     active_preset_id?: number | null;
@@ -128,6 +129,7 @@ export interface GroupUpdateRequest {
     session_keep_time?: number;           // 仅在会话保持时间变更时发送
     retry_enabled?: boolean;              // 仅在同通道重试开关变更时发送
     max_retries?: number;                 // 仅在最大重试次数变更时发送
+    sanitize_history?: boolean;           // 仅在历史清洗开关变更时发送（仅 GPT 系模型生效）
     items_to_add?: GroupItemAddRequest[];    // 新增的 items
     items_to_update?: GroupItemUpdateRequest[]; // 更新的 items (priority 变更)
     items_to_delete?: number[];              // 删除的 item IDs
@@ -291,6 +293,7 @@ function applyGroupUpdate(group: Group, req: GroupUpdateRequest): Group {
     if (req.session_keep_time !== undefined) next.session_keep_time = req.session_keep_time;
     if (req.retry_enabled !== undefined) next.retry_enabled = req.retry_enabled;
     if (req.max_retries !== undefined) next.max_retries = req.max_retries;
+    if (req.sanitize_history !== undefined) next.sanitize_history = req.sanitize_history;
 
     let items = [...(group.items ?? [])];
     if (req.items_to_delete?.length) {

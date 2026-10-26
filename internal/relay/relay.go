@@ -118,6 +118,18 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 		}
 	}
 
+	// === Responses 历史清洗（分组开关，仅 GPT 系模型） ===
+	// 聚合站后端资源池轮换会导致历史中的服务端条目引用失效（400: created under a different resource）。
+	// 开关开启时，将请求转为无状态形式（清除 previous_response_id/conversation，
+	// 丢弃 input 中不可迁移的引用条目）。放在 replay 之后：replay 合并出的历史同样会被清洗。
+	if inboundType == inbound.InboundTypeOpenAIResponse && internalRequest.RawAPIFormat == model.APIFormatOpenAIResponse && shouldSanitizeHistory(group, requestModel) {
+		if sanitizeResponsesHistoryRequest(internalRequest) {
+			// 强制走标准转换路径，否则 passthrough 直接使用原始字节，清洗结果不会生效
+			internalRequest.MarkOpenAIExactReplayRequest()
+			log.Debugf("responses history sanitized proactively (apikey=%d, group=%d, model=%s)", apiKeyID, group.ID, requestModel)
+		}
+	}
+
 	// 创建迭代器（策略排序 + 粘性优先）
 	// 如果有 replay state，注入为 sticky 偏好
 	var preferredSticky *balancer.SessionEntry
@@ -270,6 +282,7 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 
 		// 同通道重试循环
 		var result attemptResult
+		sanitizeRetryDone := false
 		for retryNum := 0; retryNum < maxSameChannelRetries; retryNum++ {
 			// 重试前等待退避
 			if retryNum > 0 {
@@ -298,7 +311,25 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 			}
 
 			result = ra.attempt()
-			if result.Success || result.Written || result.Canceled || result.ResetConversation || result.FirstTokenTimeout || !isRetryableStatus(result.StatusCode) {
+			if result.Success || result.Written || result.Canceled || result.ResetConversation || result.FirstTokenTimeout {
+				break
+			}
+			// 状态引用失效类 400（聚合站资源轮换）：清洗请求后在本渠道重试一次
+			if !isRetryableStatus(result.StatusCode) {
+				if result.StatusCode == http.StatusBadRequest &&
+					!sanitizeRetryDone &&
+					shouldSanitizeHistory(group, requestModel) &&
+					!internalRequest.IsOpenAIExactReplayRequest() &&
+					len(internalRequest.OpenAIRawInputItems()) > 0 &&
+					isStateReferenceError(result.Err) {
+					if sanitizeResponsesHistoryRequest(internalRequest) {
+						internalRequest.MarkOpenAIExactReplayRequest()
+						sanitizeRetryDone = true
+						log.Infof("responses history sanitized after state-reference 400, retrying (channel=%s, group=%d, model=%s)",
+							channel.Name, group.ID, requestModel)
+						continue
+					}
+				}
 				break
 			}
 		}

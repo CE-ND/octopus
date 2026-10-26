@@ -131,6 +131,10 @@ func GroupUpdate(req *model.GroupUpdateRequest, ctx context.Context) (*model.Gro
 		selectFields = append(selectFields, "max_retries")
 		updates.MaxRetries = v
 	}
+	if req.SanitizeHistory != nil {
+		selectFields = append(selectFields, "sanitize_history")
+		updates.SanitizeHistory = *req.SanitizeHistory
+	}
 
 	if len(selectFields) > 0 {
 		if err := tx.Model(&model.Group{}).Where("id = ?", req.ID).Select(selectFields).Updates(&updates).Error; err != nil {

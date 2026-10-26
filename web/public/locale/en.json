@@ -386,6 +386,7 @@
         },
         "info": {
             "title": "Version Info",
+            "requestUrl": "Request URL",
             "currentVersion": "Current Version",
             "buildTime": "Build Time",
             "publishedAt": "Published At",
@@ -566,7 +567,11 @@
             "submitting": "Creating..."
         },
         "card": {
-            "empty": "No rules"
+            "empty": "No rules",
+            "sanitizeHistory": {
+                "label": "Responses history sanitizing",
+                "hint": "GPT-family models only (gpt-* / codex-*): strips server-side references from request history (previous_response_id, bare reasoning, item_reference, etc.) to avoid 400 errors caused by upstream resource rotation on aggregator sites (\"created under a different resource\"). Messages and tool calls are preserved; some reasoning context is dropped."
+            }
         },
         "detail": {
             "actions": {
