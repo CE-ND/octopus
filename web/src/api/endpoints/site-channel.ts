@@ -431,14 +431,12 @@ function replaceSiteChannelAccount(
     });
 }
 
-function invalidateSiteChannelQueries(queryClient: ReturnType<typeof useQueryClient>) {
-    queryClient.invalidateQueries({ queryKey: ['site-channel', 'list'] });
-}
-
 function invalidateSiteChannelAndRelated(queryClient: ReturnType<typeof useQueryClient>) {
     queryClient.invalidateQueries({ queryKey: ['site-channel', 'list'] });
     queryClient.invalidateQueries({ queryKey: ['channels', 'list'] });
     queryClient.invalidateQueries({ queryKey: ['models', 'channel'] });
+    // 站点渠道变更会触发后端重新投影，投影渠道/模型归属变化直接影响分组页展示
+    queryClient.invalidateQueries({ queryKey: ['groups', 'list'] });
 }
 
 export function useSiteChannelList(options: { includeHistory?: boolean } = {}) {
@@ -462,7 +460,7 @@ export function useUpdateSiteChannelModelRoutes(siteId: number, accountId: numbe
             queryClient.setQueryData<SiteChannelCard[]>(['site-channel', 'list'], (cards) =>
                 replaceSiteChannelAccount(cards, siteId, normalizedAccount),
             );
-            invalidateSiteChannelQueries(queryClient);
+            invalidateSiteChannelAndRelated(queryClient);
         },
         onError: (error) => {
             logger.error('site channel model route update failed:', error);
@@ -481,7 +479,7 @@ export function useCreateSiteChannelKey(siteId: number, accountId: number) {
             queryClient.setQueryData<SiteChannelCard[]>(['site-channel', 'list'], (cards) =>
                 replaceSiteChannelAccount(cards, siteId, normalizedAccount),
             );
-            invalidateSiteChannelQueries(queryClient);
+            invalidateSiteChannelAndRelated(queryClient);
         },
         onError: (error) => {
             logger.error('site channel key create failed:', error);
@@ -500,7 +498,7 @@ export function useUpdateSiteChannelModelDisabled() {
             queryClient.setQueryData<SiteChannelCard[]>(['site-channel', 'list'], (cards) =>
                 replaceSiteChannelAccount(cards, variables.siteId, normalizedAccount),
             );
-            invalidateSiteChannelQueries(queryClient);
+            invalidateSiteChannelAndRelated(queryClient);
         },
         onError: (error) => {
             logger.error('site channel model disabled update failed:', error);
@@ -641,7 +639,7 @@ export function useResetSiteChannelModelRoutes(siteId: number, accountId: number
             queryClient.setQueryData<SiteChannelCard[]>(['site-channel', 'list'], (cards) =>
                 replaceSiteChannelAccount(cards, siteId, normalizedAccount),
             );
-            invalidateSiteChannelQueries(queryClient);
+            invalidateSiteChannelAndRelated(queryClient);
         },
         onError: (error) => {
             logger.error('site channel model route reset failed:', error);
