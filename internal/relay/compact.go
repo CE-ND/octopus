@@ -90,6 +90,16 @@ func HandleResponsesCompact(c *gin.Context) {
 	metrics := NewRelayMetrics(apiKeyID, requestModel, body, metricsReq)
 	metrics.GroupID = group.ID
 	metrics.GroupName = group.Name
+	topologyEnd := op.TopologyBegin(op.TopologyCall{
+		Agent:     detectAgentCaller(c),
+		APIKeyID:  apiKeyID,
+		GroupID:   group.ID,
+		GroupName: group.Name,
+		Model:     requestModel,
+		Protocol:  "openai-responses",
+	})
+	metrics.SetTopologyEnd(topologyEnd)
+	defer topologyEnd(false)
 	noticeScope := circuitNoticeScope{APIKeyID: apiKeyID, GroupID: group.ID, RoutingKey: requestModel}
 	defer func() {
 		if c.Request.Context().Err() != nil {

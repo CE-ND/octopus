@@ -193,3 +193,60 @@ html.dark,
     left: 5%;
   }
 }
+
+/* 连线使用独立主题色，浅色背景下不沿用卡片边框的低对比度颜色。 */
+.topology {
+  --topology-link-idle: color-mix(in oklab, var(--muted-foreground) 95%, var(--background));
+  --topology-link-dim: color-mix(in oklab, var(--muted-foreground) 85%, var(--background));
+  --topology-link-active: color-mix(in oklab, var(--primary) 85%, var(--foreground));
+  --topology-link-track: color-mix(in oklab, var(--topology-link-active) 45%, var(--background));
+  --topology-link-width: 2px;
+  --topology-link-flow-width: 2.2px;
+  --topology-link-dim-opacity: 1;
+}
+
+.dark .topology {
+  --topology-link-idle: var(--border);
+  --topology-link-dim: var(--border);
+  --topology-link-active: var(--primary);
+  --topology-link-track: var(--border);
+  --topology-link-width: 1.5px;
+  --topology-link-flow-width: 1.6px;
+  --topology-link-dim-opacity: 0.45;
+}
+
+.topology-line {
+  stroke: var(--topology-link-idle);
+  stroke-width: var(--topology-link-width);
+}
+
+.topology-line-dim {
+  stroke: var(--topology-link-dim);
+  opacity: var(--topology-link-dim-opacity);
+}
+
+.topology-line-track {
+  stroke: var(--topology-link-track);
+}
+
+.topology-line-active,
+.topology-legend-active {
+  stroke: var(--topology-link-active);
+}
+
+.topology-line-active {
+  stroke-width: var(--topology-link-flow-width);
+}
+
+/* 深色背景保留流光光晕；浅色背景用清晰的实色线条。 */
+.dark .topology-line-active {
+  filter: drop-shadow(0 0 3px color-mix(in oklab, var(--primary) 55%, transparent));
+}
+
+.topology-line-dot {
+  fill: var(--topology-link-active);
+}
+
+.topology-legend-idle {
+  stroke: var(--topology-link-idle);
+}

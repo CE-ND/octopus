@@ -20,6 +20,14 @@ writeVersion(path.join(rootDir, 'package.json'), (json) => {
   json.version = version;
 });
 
+const npmLockfile = path.join(rootDir, 'package-lock.json');
+if (fs.existsSync(npmLockfile)) {
+  writeVersion(npmLockfile, (json) => {
+    json.version = version;
+    if (json.packages?.['']) json.packages[''].version = version;
+  });
+}
+
 writeVersion(path.join(rootDir, 'installer-ui', 'electron-builder.json'), (json) => {
   json.extraMetadata.version = version;
 });

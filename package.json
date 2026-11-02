@@ -1,6 +1,6 @@
 {
   "name": "octopus-desktop",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "private": true,
   "description": "Desktop wrapper for Octopus",
   "main": "desktop/main.js",
@@ -31,7 +31,8 @@
         "from": "build/desktop/backend",
         "to": "backend",
         "filter": [
-          "**/*"
+          "octopus.exe",
+          "octopus"
         ]
       }
     ],

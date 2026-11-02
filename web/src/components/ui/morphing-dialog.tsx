@@ -200,12 +200,14 @@ export type MorphingDialogContentProps = {
   children: React.ReactNode;
   className?: string;
   style?: React.CSSProperties;
+  transition?: Transition;
 };
 
 function MorphingDialogContent({
   children,
   className,
   style,
+  transition,
 }: MorphingDialogContentProps) {
   const { setIsOpen, isOpen, uniqueId, triggerRef } = useMorphingDialog();
   const containerRef = useRef<HTMLDivElement>(null!);
@@ -299,6 +301,7 @@ function MorphingDialogContent({
       layoutId={`dialog-${uniqueId}`}
       className={cn('overflow-hidden', className)}
       style={style}
+      transition={transition}
       role='dialog'
       aria-modal='true'
       aria-labelledby={`motion-ui-morphing-dialog-title-${uniqueId}`}
@@ -369,7 +372,7 @@ function MorphingDialogTitle({
       layoutId={`dialog-title-container-${uniqueId}`}
       className={className}
       style={style}
-      layout
+      layout='position'
     >
       {children}
     </motion.div>
@@ -427,6 +430,7 @@ function MorphingDialogDescription({
           ? undefined
           : `dialog-description-content-${uniqueId}`
       }
+      layout={disableLayoutAnimation ? false : 'position'}
       variants={variants}
       className={className}
       initial='initial'

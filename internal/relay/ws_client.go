@@ -56,6 +56,8 @@ func HandleWSResponse(c *gin.Context) {
 	// 握手时捕获客户端的稳定会话 ID（codex-rs 的 session_id 头），
 	// 整个连接内所有 response.create 都复用它做会话绑定。
 	clientSessionID := codexClientSessionHeader(c)
+	// 握手时归因调用方 agent，整个连接复用
+	callerAgent := detectAgentCaller(c)
 
 	log.Debugf("ws client connected (apikey=%d)", apiKeyID)
 
@@ -102,7 +104,7 @@ func HandleWSResponse(c *gin.Context) {
 			continue
 		}
 
-		conversationState = processWSResponseCreate(ctx, conn, data, apiKeyID, supportedModels, retryHeader, downstreamSessionID, clientSessionID, conversationState)
+		conversationState = processWSResponseCreate(ctx, conn, data, apiKeyID, supportedModels, retryHeader, downstreamSessionID, clientSessionID, callerAgent, conversationState)
 	}
 }
 
@@ -115,6 +117,7 @@ func processWSResponseCreate(
 	retryHeader string,
 	downstreamSessionID string,
 	clientSessionID string,
+	callerAgent string,
 	conversationState *wsConversationState,
 ) *wsConversationState {
 	var reqBody map[string]json.RawMessage
@@ -223,7 +226,7 @@ func processWSResponseCreate(
 	}
 
 	requestModel = executionRequest.Model
-	req, group, err := newWSRelayRequest(ctx, conn, inAdapter, apiKeyID, requestModel, cloneInternalRequest(executionRequest), originalRequest, preferredSticky, bodyBytes, downstreamSessionID, clientSessionID, retryHeader)
+	req, group, err := newWSRelayRequest(ctx, conn, inAdapter, apiKeyID, requestModel, cloneInternalRequest(executionRequest), originalRequest, preferredSticky, bodyBytes, downstreamSessionID, clientSessionID, retryHeader, callerAgent)
 	if err != nil {
 		status := 404
 		code := "model_not_found"
@@ -261,7 +264,7 @@ func processWSResponseCreate(
 			apiKeyID, requestModel, failedPreviousResponseID, result.ResetConversation)
 		balancer.DeleteSticky(apiKeyID, req.routingKey)
 		replayedRequest := conversationState.BuildReplayRequest(originalRequest)
-		replayReq, replayGroup, replayErr := newWSRelayRequest(ctx, conn, inAdapter, apiKeyID, requestModel, replayedRequest, originalRequest, preferredSticky, bodyBytes, downstreamSessionID, clientSessionID, retryHeader)
+		replayReq, replayGroup, replayErr := newWSRelayRequest(ctx, conn, inAdapter, apiKeyID, requestModel, replayedRequest, originalRequest, preferredSticky, bodyBytes, downstreamSessionID, clientSessionID, retryHeader, callerAgent)
 		if replayErr == nil {
 			replayReq.metrics.SetWSMode(dbmodel.RelayLogWSModeReplay)
 			replayReq.metrics.SetWSRecovery(dbmodel.RelayLogWSRecoveryReplay)
@@ -416,6 +419,7 @@ func newWSRelayRequest(
 	downstreamSessionID string,
 	clientSessionID string,
 	retryHeader string,
+	callerAgent string,
 ) (*relayRequest, *dbmodel.Group, error) {
 	sessionID, _ := resolveCodexSessionID(clientSessionID, codexSessionID(executionRequest))
 	group, _, err := op.CodexSessionRouteResolve(sessionID, requestModel, ctx)
@@ -436,6 +440,14 @@ func newWSRelayRequest(
 	metrics := NewRelayMetrics(apiKeyID, requestModel, rawBody, metricsRequest)
 	metrics.GroupID = group.ID
 	metrics.GroupName = group.Name
+	metrics.SetTopologyEnd(op.TopologyBegin(op.TopologyCall{
+		Agent:     callerAgent,
+		APIKeyID:  apiKeyID,
+		GroupID:   group.ID,
+		GroupName: group.Name,
+		Model:     requestModel,
+		Protocol:  inboundProtocolName(inbound.InboundTypeOpenAIResponse),
+	}))
 
 	return &relayRequest{
 		c:                nil,

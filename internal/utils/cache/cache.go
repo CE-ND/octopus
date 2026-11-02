@@ -15,6 +15,9 @@ type Cache[K comparable, V any] interface {
 	Set(k K, v V)
 	Get(k K) (V, bool)
 	GetOrSet(k K, v V) (V, bool)
+	// Update 在分片写锁内读取并更新条目，未命中时回调收到零值和 false。
+	// 回调不得再次访问同一缓存，以免重复获取分片锁导致死锁。
+	Update(k K, update func(V, bool) V) V
 	GetAll() map[K]V
 	Del(keys ...K) int
 	Exists(keys ...K) bool
@@ -59,6 +62,12 @@ func (c *cache[K, V]) GetOrSet(k K, v V) (V, bool) {
 	hashedKey := xxhash.Sum64String(keyToString(k))
 	shard := c.getShard(hashedKey)
 	return shard.getOrSet(k, v)
+}
+
+func (c *cache[K, V]) Update(k K, update func(V, bool) V) V {
+	hashedKey := xxhash.Sum64String(keyToString(k))
+	shard := c.getShard(hashedKey)
+	return shard.update(k, update)
 }
 
 func (c *cache[K, V]) GetAll() map[K]V {

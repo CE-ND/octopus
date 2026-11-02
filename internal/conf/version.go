@@ -5,5 +5,5 @@ var (
 	Commit    = "unknown"
 	BuildTime = "unknown"
 	Author    = "hureru"
-	Repo      = "https://github.com/Hureru/octopus"
+	Repo      = "https://github.com/CE-ND/octopus"
 )

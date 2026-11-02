@@ -210,6 +210,7 @@ pnpm desktop:dist
 | `OCTOPUS_DATABASE_PATH` | `database.path` |
 | `OCTOPUS_LOG_LEVEL` | `log.level` |
 | `OCTOPUS_GITHUB_PAT` | 用于获取最新版本时的速率限制(可选) |
+| `OCTOPUS_GITHUB_REPO` | 应用更新的 GitHub 发布仓库，默认 `https://github.com/CE-ND/octopus`(可选) |
 | `OCTOPUS_RELAY_MAX_SSE_EVENT_SIZE` | 最大 SSE 事件大小(可选) |
 | `OCTOPUS_IMAGES_BODY_MEMORY_THRESHOLD_MB` | Images 请求体内存缓存阈值，超过阈值会落盘临时文件(可选，默认 16) |
 | `OCTOPUS_IMAGES_BODY_MAX_MB` | Images 请求体最大大小限制，超过限制将拒绝请求(可选，默认 256) |
@@ -417,6 +418,8 @@ base_url = "http://127.0.0.1:18777/v1"
 ---
 
 ## 🔀 与上游的差异
+
+应用内版本信息、检查更新、发布历史和安装包下载说明见 [GitHub 版本管理](VERSION_MANAGEMENT.md)。
 
 兼容 [bestruirui/octopus](https://github.com/bestruirui/octopus)，`dev` 分支领先约 180 个提交。
 

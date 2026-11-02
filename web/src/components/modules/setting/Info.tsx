@@ -4,32 +4,23 @@ import { useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { Info, Tag, Github, AlertTriangle, Loader2, Globe } from 'lucide-react';
 import { APP_VERSION, GITHUB_REPO } from '@/lib/info';
-import { useNowVersion } from '@/api/endpoints/update';
-import { API_BASE_URL } from '@/api/client';
+import { useVersionInfo } from '@/api/endpoints/update';
+import { resolveRelayBaseUrl } from '@/lib/relay-url';
 import { CopyIconButton } from '@/components/common/CopyButton';
 import { Button } from '@/components/ui/button';
 import { isOctopusCacheName, isFontCacheName, SW_MESSAGE_TYPE } from '@/lib/sw';
-
-// 解析对客户端暴露的完整请求地址（OpenAI 兼容端点前缀）：
-// 显式配置了后端地址（开发模式）时用配置值，否则前端由后端托管、与页面同源
-// 组件经 ContentLoader 客户端动态加载，初始化时 window 必然可用；SSG 预渲染兜底返回空串
-function resolveRelayBaseUrl(): string {
-    if (API_BASE_URL && API_BASE_URL !== '.') {
-        return `${API_BASE_URL.replace(/\/+$/, '')}/v1`;
-    }
-    if (typeof window === 'undefined') return '';
-    return `${window.location.origin}/v1`;
-}
+import { VersionReleases } from './VersionReleases';
 
 export function SettingInfo() {
     const t = useTranslations('setting');
-    const nowVersionQuery = useNowVersion();
+    const nowVersionQuery = useVersionInfo();
     const [relayBaseUrl] = useState(() => resolveRelayBaseUrl());
 
-    const backendNowVersion = nowVersionQuery.data || '';
+    const backendNowVersion = nowVersionQuery.data?.version || '';
+    const githubRepo = nowVersionQuery.data?.repository || GITHUB_REPO;
 
     // 前端版本与后端当前版本不一致 → 浏览器缓存问题
-    const isCacheMismatch = !!backendNowVersion && backendNowVersion !== APP_VERSION;
+    const isCacheMismatch = !!backendNowVersion && backendNowVersion !== 'dev' && APP_VERSION !== 'unknown' && backendNowVersion !== APP_VERSION;
 
     const clearCacheAndReload = async () => {
         // 通知 Service Worker 清理缓存
@@ -71,14 +62,15 @@ export function SettingInfo() {
                     <span className="text-sm font-medium">{t('info.github')}</span>
                 </div>
                 <a
-                    href={GITHUB_REPO}
+                    href={githubRepo}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-sm text-primary hover:underline"
                 >
-                    {GITHUB_REPO.replace('https://github.com/', '')}
+                    {githubRepo.replace('https://github.com/', '')}
                 </a>
             </div>
+
             {/* 请求地址 */}
             <div className="flex items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
@@ -116,6 +108,21 @@ export function SettingInfo() {
                 </div>
             </div>
 
+            {nowVersionQuery.data?.commit && nowVersionQuery.data.commit !== 'unknown' && (
+                <div className="flex items-center justify-between gap-4 text-xs text-muted-foreground">
+                    <span>{t('info.commit')}</span>
+                    <a href={`${githubRepo}/commit/${encodeURIComponent(nowVersionQuery.data.commit)}`} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+                        <code title={nowVersionQuery.data.commit}>{nowVersionQuery.data.commit.slice(0, 12)}</code>
+                    </a>
+                </div>
+            )}
+            {nowVersionQuery.data?.build_time && nowVersionQuery.data.build_time !== 'unknown' && (
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+                    <span>{t('info.buildTime')}</span>
+                    <span>{nowVersionQuery.data.build_time}</span>
+                </div>
+            )}
+
             {/* 浏览器缓存问题警告 */}
             {isCacheMismatch && (
                 <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-xl space-y-2">
@@ -142,6 +149,7 @@ export function SettingInfo() {
                     </div>
                 </div>
             )}
+            <VersionReleases releasesURL={nowVersionQuery.data?.releases_url || `${githubRepo}/releases`} />
         </div>
     );
 }

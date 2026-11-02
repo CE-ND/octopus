@@ -44,6 +44,9 @@ type RelayMetrics struct {
 	BillInputTokens      *int
 	CacheReadTokens      *int
 	CacheWriteTokens     *int
+
+	// 拓扑跟踪结束回调（见 op.TopologyBegin），在请求出口触发一次
+	topologyEnd func(success bool)
 }
 
 func NewRelayMetrics(apiKeyID int, requestModel string, rawBody []byte, req *transformerModel.InternalLLMRequest) *RelayMetrics {
@@ -139,8 +142,16 @@ func (m *RelayMetrics) SaveWithChannelStats(ctx context.Context, success bool, e
 	m.saveWithChannelStats(ctx, success, err, attempts, updateChannelStats, true)
 }
 
+func (m *RelayMetrics) SetTopologyEnd(end func(success bool)) {
+	m.topologyEnd = end
+}
+
 func (m *RelayMetrics) saveWithChannelStats(ctx context.Context, success bool, err error, attempts []model.ChannelAttempt, updateChannelStats bool, emitLog bool) {
 	duration := time.Since(m.StartTime)
+
+	if m.topologyEnd != nil {
+		m.topologyEnd(success)
+	}
 
 	globalStats := model.StatsMetrics{
 		WaitTime:    duration.Milliseconds(),

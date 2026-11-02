@@ -158,6 +158,20 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 	metrics := NewRelayMetrics(apiKeyID, requestModel, rawBody, internalRequest)
 	metrics.GroupID = group.ID
 	metrics.GroupName = group.Name
+
+	// 拓扑跟踪：内存态记录 agent→分组的实时调用；End 在 metrics 收敛点触发，
+	// defer 兜底保证即使提前 return 也不会泄漏在途计数。
+	topologyEnd := op.TopologyBegin(op.TopologyCall{
+		Agent:     detectAgentCaller(c),
+		APIKeyID:  apiKeyID,
+		GroupID:   group.ID,
+		GroupName: group.Name,
+		Model:     requestModel,
+		Protocol:  inboundProtocolName(inboundType),
+	})
+	metrics.SetTopologyEnd(topologyEnd)
+	defer topologyEnd(false)
+
 	// 如果触发了 HTTP replay，记录 ws_mode=replay 和 ws_recovery=replay
 	if responsesReplayState != nil {
 		metrics.SetWSMode(dbmodel.RelayLogWSModeReplay)

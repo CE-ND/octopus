@@ -608,6 +608,17 @@ export function GroupEditor({
     const [selectedMembers, setSelectedMembers] = useState<SelectedMember[]>(initial?.members ?? []);
     const [removingIds, setRemovingIds] = useState<Set<string>>(new Set());
 
+    // 渠道刷新后同步显示信息，保留当前编辑的成员顺序、权重与关联 ID。
+    const currentMembers = useMemo<SelectedMember[]>(() => {
+        const byKey = new Map(modelChannels.map((channel) => [memberKey(channel), channel]));
+        return selectedMembers.map((member) => {
+            const current = byKey.get(memberKey(member));
+            return current
+                ? { ...current, id: member.id, item_id: member.item_id, weight: member.weight }
+                : member;
+        });
+    }, [modelChannels, selectedMembers]);
+
     const groupKey = normalizeKey(groupName);
     const regexKey = matchRegex.trim();
 
@@ -861,13 +872,13 @@ export function GroupEditor({
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 h-full min-h-0">
                             <ModelPickerSection
                                 modelChannels={modelChannels}
-                                selectedMembers={selectedMembers}
+                                selectedMembers={currentMembers}
                                 onAdd={handleAddMember}
                                 onAutoAdd={handleAutoAdd}
                                 autoAddDisabled={autoAddDisabled}
                             />
                             <SortSection
-                                members={selectedMembers}
+                                members={currentMembers}
                                 onReorder={setSelectedMembers}
                                 onRemove={handleRemoveMember}
                                 onWeightChange={handleWeightChange}

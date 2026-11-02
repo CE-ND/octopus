@@ -36,6 +36,15 @@ func (c *shard[K, V]) getOrSet(k K, v V) (V, bool) {
 	return v, false
 }
 
+func (c *shard[K, V]) update(k K, update func(V, bool) V) V {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	item, exists := c.hashmap[k]
+	item = update(item, exists)
+	c.hashmap[k] = item
+	return item
+}
+
 func (c *shard[K, V]) del(k K) int {
 	c.lock.Lock()
 	defer c.lock.Unlock()

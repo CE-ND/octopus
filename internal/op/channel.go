@@ -9,7 +9,6 @@ import (
 
 	"github.com/bestruirui/octopus/internal/db"
 	"github.com/bestruirui/octopus/internal/model"
-	model2 "github.com/bestruirui/octopus/internal/transformer/outbound"
 	"github.com/bestruirui/octopus/internal/utils/cache"
 	"github.com/bestruirui/octopus/internal/utils/log"
 	"github.com/bestruirui/octopus/internal/utils/xstrings"
@@ -499,7 +498,8 @@ func ChannelLLMList(ctx context.Context) ([]model.LLMChannel, error) {
 		siteAccountName := ""
 		siteGroupKey := ""
 		siteGroupName := ""
-		endpointType := "openai"
+		// 协议由渠道实际的出站类型决定，普通渠道与站点渠道使用同一映射。
+		endpointType := string(model.SiteModelRouteTypeFromOutboundType(channel.Type))
 		var siteID *int
 		var siteAccountID *int
 		if binding != nil {
@@ -532,14 +532,6 @@ func ChannelLLMList(ctx context.Context) ([]model.LLMChannel, error) {
 			}
 			if siteGroupName == "" {
 				siteGroupName = model.NormalizeSiteGroupName(siteGroupKey, "")
-			}
-			switch channel.Type {
-			case model2.OutboundTypeAnthropic:
-				endpointType = "anthropic"
-			case model2.OutboundTypeGemini:
-				endpointType = "gemini"
-			default:
-				endpointType = "openai"
 			}
 		}
 		modelNames := xstrings.SplitTrimCompact(",", channel.Model, channel.CustomModel)

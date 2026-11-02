@@ -105,6 +105,15 @@ export function AppContainer() {
                     );
                     break;
                 }
+                case 'topology': {
+                    prefetches.push(
+                        queryClient.prefetchQuery({
+                            queryKey: ['topology', 'live'],
+                            queryFn: async () => apiClient.get('/api/v1/topology/live'),
+                        })
+                    );
+                    break;
+                }
                 case 'site': {
                     prefetches.push(
                         queryClient.prefetchQuery({

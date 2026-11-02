@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Tray } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, shell, Tray } = require('electron');
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
@@ -317,6 +317,19 @@ async function createWindow() {
     mainWindow.show();
   });
 
+  // 发布页和安装包链接交给系统浏览器，下载过程不占用管理窗口。
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    try {
+      const target = new URL(url);
+      if (target.protocol === 'https:' || target.protocol === 'http:') {
+        shell.openExternal(url).catch((error) => console.error('Unable to open external link:', error));
+      }
+    } catch {
+      // 无效地址不创建新窗口。
+    }
+    return { action: 'deny' };
+  });
+
   mainWindow.on('close', (event) => {
     if (shuttingDown) return;
 
@@ -344,7 +357,23 @@ async function createWindow() {
 }
 
 app.commandLine.appendSwitch('disable-http-cache');
-Menu.setApplicationMenu(null);
+// macOS 的 Cmd+C/V/X/A/Z 走系统菜单栏的 Edit 菜单角色触发，菜单设为 null 会导致复制粘贴失效；
+// Windows/Linux 由 Chromium 内部处理快捷键，保持 null 以隐藏菜单栏。
+if (process.platform === 'darwin') {
+  Menu.setApplicationMenu(Menu.buildFromTemplate([
+    { role: 'appMenu' },
+    {
+      label: 'Edit',
+      submenu: [
+        { role: 'undo' }, { role: 'redo' }, { type: 'separator' },
+        { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' },
+      ],
+    },
+    { role: 'windowMenu' },
+  ]));
+} else {
+  Menu.setApplicationMenu(null);
+}
 
 ipcMain.on('octopus-window:minimize', (event) => {
   getEventWindow(event)?.minimize();
