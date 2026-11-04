@@ -12,7 +12,7 @@ import { cn } from '@/lib/utils';
 
 /**
  * Agent 品牌图标：优先使用 @lobehub/icons 的官方品牌组件（.Color 为官方配色），
- * ZCode / WorkBuddy 未被任何图标库收录，使用从官方应用提取的原始图标资源。
+ * ZCode / WorkBuddy / Kimi Code 未被任何图标库收录，使用从官方应用提取的原始图标资源。
  * Codex / Copilot 官方配色为黑白，走 Mono（currentColor）以适配明暗主题。
  */
 
@@ -22,6 +22,7 @@ const AGENT_LABELS: Record<string, string> = {
     'deepseek-harness': 'DeepSeek Harness',
     'gemini-cli': 'Gemini CLI',
     zcode: 'ZCode',
+    'kimi-code': 'Kimi Code',
     workbuddy: 'WorkBuddy',
     codebuddy: 'CodeBuddy',
     copilot: 'Copilot',
@@ -55,6 +56,17 @@ export function AgentIcon({ agent, className }: { agent: string; className?: str
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
                     src="/icons/zcode.png"
+                    alt=""
+                    width={20}
+                    height={20}
+                    className={cn('rounded-[4px]', className)}
+                />
+            );
+        case 'kimi-code':
+            return (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                    src="/icons/kimi-code.png"
                     alt=""
                     width={20}
                     height={20}

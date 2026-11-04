@@ -80,14 +80,14 @@ func loadDshProfile(paths dshPaths, override *string) (*dshProfile, string, dshF
 		return nil, "", file, err
 	}
 	p := &dshProfile{base: base, patch: patch}
+	// DSH 的 patch 层允许同一插件 id 重复出现：按文件顺序应用，后出现的条目整体覆盖前者。
+	// 这里不能要求 id 唯一；entry() 取最后一个匹配项，与 DSH 的 last-write-wins 语义一致。
 	for _, doc := range []*yaml.Node{base, patch} {
-		seen := map[string]bool{}
 		for _, entry := range doc.Content[0].Content {
 			id := dshText(dshGet(entry, "id"))
-			if entry.Kind != yaml.MappingNode || id == "" || seen[id] {
-				return nil, "", file, fmt.Errorf("DSH profile 需要唯一插件 ID，组合指令暂不支持")
+			if entry.Kind != yaml.MappingNode || id == "" {
+				return nil, "", file, fmt.Errorf("DSH profile 的每个条目都需要插件 ID，组合指令暂不支持")
 			}
-			seen[id] = true
 			if config := dshGet(entry, "config"); config != nil && config.Kind != yaml.MappingNode {
 				return nil, "", file, dshYAMLError(config)
 			}
@@ -120,9 +120,10 @@ func (p *dshProfile) entry(id string, create bool) (*yaml.Node, error) {
 			if entryID != id && name != pkg {
 				continue
 			}
-			if found != nil || (entryID == id && name != "" && name != pkg) {
+			if entryID == id && name != "" && name != pkg {
 				return nil, fmt.Errorf("DSH 插件配置无法唯一识别：%s", id)
 			}
+			// 同一 id 的多个 patch 条目按 DSH 语义顺序覆盖，最后一个才是生效配置。
 			found = entry
 		}
 		return found, nil

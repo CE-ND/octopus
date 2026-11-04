@@ -80,6 +80,7 @@ export interface AgentAutoConfigInput {
     api_key_id: number;
     model_groups?: ClaudeCodeModelGroups;
     codex_model_group_id?: number;
+    kimi_code_model_group_id?: number;
     current_content?: string;
     dsh?: { profile: string; model_group_id: number; api?: DshAPI };
 }

@@ -26,7 +26,7 @@ export function ChannelTabSwitcher({ className }: Props) {
     const counts = useMemo(
         () => ({
             site: (siteChannelsData ?? []).filter((card) => card.account_count > 0).length,
-            manual: (channelsData ?? []).filter((c) => !c.raw.managed).length,
+            manual: (channelsData ?? []).filter((c) => !c.raw.managed || !!c.raw.managed_source?.plugin_id).length,
         }),
         [channelsData, siteChannelsData],
     );

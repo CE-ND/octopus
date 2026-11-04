@@ -103,10 +103,13 @@ func (c *Channel) UnmarshalJSON(data []byte) error {
 }
 
 type ManagedChannelSource struct {
-	SiteID          int    `json:"site_id"`
-	SiteAccountID   int    `json:"site_account_id"`
+	SiteID          int    `json:"site_id,omitempty"`
+	SiteAccountID   int    `json:"site_account_id,omitempty"`
 	SiteUserGroupID *int   `json:"site_user_group_id,omitempty"`
-	GroupKey        string `json:"group_key"`
+	GroupKey        string `json:"group_key,omitempty"`
+	PluginID        string `json:"plugin_id,omitempty"`
+	ProviderID      string `json:"provider_id,omitempty"`
+	Protocol        string `json:"protocol,omitempty"`
 }
 
 type BaseUrl struct {

@@ -40,11 +40,21 @@ type Startup struct {
 	CacheInitTimeoutSeconds int `mapstructure:"cache_init_timeout_seconds"`
 }
 
+type Plugin struct {
+	Enabled         bool   `mapstructure:"enabled"`
+	DataDir         string `mapstructure:"data_dir"`
+	NodePath        string `mapstructure:"node_path"`
+	NodeElectron    bool   `mapstructure:"node_electron"`
+	Registry        string `mapstructure:"registry"`
+	MarketplaceUser string `mapstructure:"marketplace_user"`
+}
+
 type Config struct {
 	Server   Server   `mapstructure:"server"`
 	Log      Log      `mapstructure:"log"`
 	Database Database `mapstructure:"database"`
 	Startup  Startup  `mapstructure:"startup"`
+	Plugin   Plugin   `mapstructure:"plugin"`
 }
 
 var AppConfig Config
@@ -116,4 +126,8 @@ func setDefaults() {
 	viper.SetDefault("log.access.slow_threshold_ms", 3000)
 	viper.SetDefault("log.relay.summary", true)
 	viper.SetDefault("startup.cache_init_timeout_seconds", 120)
+	viper.SetDefault("plugin.enabled", true)
+	viper.SetDefault("plugin.data_dir", "data/plugins")
+	viper.SetDefault("plugin.registry", "https://registry.npmjs.org")
+	viper.SetDefault("plugin.marketplace_user", "")
 }

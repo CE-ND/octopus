@@ -50,10 +50,13 @@ export type ChannelKey = {
 };
 
 export type ManagedChannelSource = {
-    site_id: number;
-    site_account_id: number;
+    site_id?: number;
+    site_account_id?: number;
     site_user_group_id?: number | null;
-    group_key: string;
+    group_key?: string;
+    plugin_id?: string;
+    provider_id?: string;
+    protocol?: string;
 };
 
 /**

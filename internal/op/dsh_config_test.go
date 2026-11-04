@@ -63,6 +63,41 @@ records:
 foreignSetting: keep
 `
 
+const dshDuplicateProfile = `# DSH layered patches
+- id: llm-pi-ai
+  name: '@deepseek-ai/dsh-llm-pi-ai'
+  config:
+    providers:
+      octopus:
+        api: openai-responses
+        apiKeyEnv: OCTOPUS_DESKTOP_API_KEY
+        baseURL: http://127.0.0.1:18777/v1
+        displayName: Octopus
+        models:
+          - id: octopus-model
+            name: octopus-model
+- id: agent-default-model
+  config:
+    provider: octopus
+    model: octopus-model
+- id: llm-pi-ai # magpie
+  name: '@deepseek-ai/dsh-llm-pi-ai'
+  config:
+    providers:
+      magpie:
+        displayName: Magpie
+        apiKeyEnv: MAGPIE_GATEWAY_KEY
+        api: openai-completions
+        baseURL: http://127.0.0.1:3425/v1
+        models:
+          - id: workbuddy/deepseek-v4.1-flash
+            name: DeepSeek-V4.1-Flash
+- id: agent-default-model # magpie
+  config:
+    provider: magpie
+    model: workbuddy/deepseek-v4.1-flash
+`
+
 func dshTestHome(t *testing.T) dshPaths {
 	t.Helper()
 	home := t.TempDir()
@@ -304,5 +339,91 @@ func TestDshLockCoordinationAndPrivateDiagnostics(t *testing.T) {
 	}
 	if _, err := resolveDshPaths(filepath.Join("desktop", "other")); err == nil {
 		t.Fatal("accepted nested profile")
+	}
+}
+
+// DSH patch layers may repeat an entry id; the later row replaces the earlier
+// one. The editor must accept that shape and resolve the last row.
+func TestDshDuplicatePatchEntriesUseLastWrite(t *testing.T) {
+	paths := dshTestHome(t)
+	if err := os.WriteFile(paths.profile, []byte(dshDuplicateProfile), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	p, _, _, err := loadDshProfile(paths, nil)
+	if err != nil {
+		t.Fatalf("duplicate DSH patch ids should be accepted: %v", err)
+	}
+	if provider, err := p.provider(false); err != nil {
+		t.Fatal(err)
+	} else if provider != nil {
+		t.Fatal("the last llm-pi-ai row has no octopus provider")
+	}
+	llmConfig, err := p.config("llm-pi-ai", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	providers := dshGet(llmConfig, "providers")
+	if got := dshText(dshGet(dshGet(providers, "magpie"), "displayName")); got != "Magpie" {
+		t.Fatalf("provider should come from the last llm-pi-ai row, got %q", got)
+	}
+	if dshGet(providers, "octopus") != nil {
+		t.Fatal("the earlier octopus row should not be treated as active")
+	}
+	defaults, err := p.config("agent-default-model", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := dshText(dshGet(defaults, "provider")), "magpie"; got != want {
+		t.Fatalf("default provider = %q, want %q", got, want)
+	}
+	if got, want := dshText(dshGet(defaults, "model")), "workbuddy/deepseek-v4.1-flash"; got != want {
+		t.Fatalf("default model = %q, want %q", got, want)
+	}
+}
+
+// Auto-config must edit the effective (last) patch row while keeping other
+// providers from that row, instead of failing on the duplicated ids.
+func TestDshAutoConfigWithDuplicatePatchEntries(t *testing.T) {
+	paths := dshTestHome(t)
+	if err := os.WriteFile(paths.profile, []byte(dshDuplicateProfile), 0600); err != nil {
+		t.Fatal(err)
+	}
+	keyID, groupID := seedDshGroup(t)
+
+	_, state, err := DshConfigList("desktop", context.Background())
+	if err != nil {
+		t.Fatalf("DshConfigList failed on duplicate patch ids: %v", err)
+	}
+	if state.CurrentProvider != "magpie" {
+		t.Fatalf("current provider = %q, want magpie", state.CurrentProvider)
+	}
+
+	prepared := dshTestPrepare(t, keyID, groupID, "openai-responses")
+	doc, err := parseDshYAML(prepared.Content, yaml.SequenceNode)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := &dshProfile{patch: doc, base: &yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{{Kind: yaml.SequenceNode}}}}
+	llmConfig, err := p.config("llm-pi-ai", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	providers := dshGet(llmConfig, "providers")
+	if dshGet(providers, "octopus") == nil {
+		t.Fatal("auto-config did not add the octopus provider")
+	}
+	if dshGet(providers, "magpie") == nil {
+		t.Fatal("auto-config lost the existing magpie provider")
+	}
+	defaults, err := p.config("agent-default-model", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := dshText(dshGet(defaults, "provider")); got != "octopus" {
+		t.Fatalf("default provider = %q, want octopus", got)
+	}
+	if got := dshText(dshGet(defaults, "model")); got != "public-group-alias" {
+		t.Fatalf("default model = %q, want public-group-alias", got)
 	}
 }

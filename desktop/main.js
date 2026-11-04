@@ -173,6 +173,9 @@ async function startBackend() {
     OCTOPUS_SERVER_HOST: host,
     OCTOPUS_SERVER_PORT: String(port),
     OCTOPUS_DESKTOP_SHUTDOWN_TOKEN: shutdownToken,
+    OCTOPUS_PLUGIN_DATA_DIR: path.join(dataDir, 'plugins'),
+    OCTOPUS_PLUGIN_NODE: process.execPath,
+    OCTOPUS_PLUGIN_NODE_ELECTRON: '1',
   };
 
   backendProcess = spawn(backendPath, ['start', '--config', configPath], {

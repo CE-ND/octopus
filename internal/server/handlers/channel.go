@@ -73,6 +73,11 @@ func listChannel(c *gin.Context) {
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
+	pluginBindingMap, err := op.PluginChannelBindingMapByChannelIDs(channelIDs, c.Request.Context())
+	if err != nil {
+		resp.Error(c, http.StatusInternalServerError, err.Error())
+		return
+	}
 	for i, channel := range channels {
 		stats := op.StatsChannelGet(channel.ID)
 		channels[i].Stats = &stats
@@ -83,6 +88,13 @@ func listChannel(c *gin.Context) {
 				SiteAccountID:   binding.SiteAccountID,
 				SiteUserGroupID: binding.SiteUserGroupID,
 				GroupKey:        binding.GroupKey,
+			}
+		} else if binding, ok := pluginBindingMap[channel.ID]; ok {
+			channels[i].Managed = true
+			channels[i].ManagedSource = &model.ManagedChannelSource{
+				PluginID:   binding.PluginID,
+				ProviderID: binding.ProviderID,
+				Protocol:   binding.Protocol,
 			}
 		}
 	}

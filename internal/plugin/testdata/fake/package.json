@@ -1,0 +1,34 @@
+{
+  "name": "@octopus/fake-plugin",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "./index.mjs",
+  "octopus": {
+    "displayName": "Fake Plugin",
+    "ui": {
+      "configSchema": {
+        "type": "object",
+        "properties": {
+          "free_only": {
+            "type": "boolean",
+            "title": "Free models only",
+            "default": false
+          },
+          "mode": {
+            "type": "string",
+            "title": "Mode",
+            "enum": ["fast", "quality"],
+            "default": "fast"
+          }
+        }
+      },
+      "pages": [
+        {
+          "id": "demo",
+          "title": "Fake Dashboard",
+          "entry": "ui/index.html"
+        }
+      ]
+    }
+  }
+}

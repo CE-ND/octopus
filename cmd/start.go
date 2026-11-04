@@ -9,6 +9,7 @@ import (
 	"github.com/bestruirui/octopus/internal/conf"
 	"github.com/bestruirui/octopus/internal/db"
 	"github.com/bestruirui/octopus/internal/op"
+	"github.com/bestruirui/octopus/internal/plugin"
 	"github.com/bestruirui/octopus/internal/relay"
 	"github.com/bestruirui/octopus/internal/server"
 	"github.com/bestruirui/octopus/internal/task"
@@ -69,6 +70,14 @@ var startCmd = &cobra.Command{
 			shutdown.Shutdown()
 			os.Exit(1)
 		}
+
+		if err := plugin.Init(context.Background()); err != nil {
+			log.Warnf("plugin init failed: %v", err)
+		}
+		shutdown.Register(func() error {
+			plugin.Shutdown()
+			return nil
+		})
 
 		if err := server.Start(); err != nil {
 			log.Errorf("server start error: %v", err)

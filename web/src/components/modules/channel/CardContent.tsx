@@ -170,20 +170,21 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
     };
 
     const handleManagedSourceJump = (target: 'site' | 'site-channel') => {
-        if (!channel.managed_source) return;
+        const source = channel.managed_source;
+        if (!source || source.plugin_id || source.site_id === undefined || source.site_account_id === undefined) return;
 
         setIsOpen(false);
         requestJump(
             target === 'site'
                 ? {
                     kind: 'site-account',
-                    siteId: channel.managed_source.site_id,
-                    accountId: channel.managed_source.site_account_id,
+                    siteId: source.site_id,
+                    accountId: source.site_account_id,
                 }
                 : {
                     kind: 'site-channel-account',
-                    siteId: channel.managed_source.site_id,
-                    accountId: channel.managed_source.site_account_id,
+                    siteId: source.site_id,
+                    accountId: source.site_account_id,
                 },
         );
     };
@@ -197,7 +198,7 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
                     </h2>
                     {channel.managed ? (
                         <Badge variant="outline" className="ml-3 border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300">
-                            站点投影
+                            {channel.managed_source?.plugin_id ? '插件渠道' : '站点投影'}
                         </Badge>
                     ) : null}
                     <MorphingDialogClose
@@ -219,9 +220,11 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
                                 {channel.managed ? (
                                     <section className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-800 dark:text-amber-200">
                                         <div>
-                                            这是站点账号自动投影生成的托管 channel。请到站点管理中修改账号、分组、模型、代理或启停状态；该页面不再允许直接编辑、删除或启停，避免被后续投影覆盖。
+                                            {channel.managed_source?.plugin_id
+                                                ? `这是插件自动管理的渠道（${channel.managed_source.plugin_id} / ${channel.managed_source.provider_id ?? ''}）。请到插件页登录、刷新模型或卸载插件；该页面不再允许直接编辑、删除或启停。`
+                                                : '这是站点账号自动投影生成的托管 channel。请到站点管理中修改账号、分组、模型、代理或启停状态；该页面不再允许直接编辑、删除或启停，避免被后续投影覆盖。'}
                                         </div>
-                                        {channel.managed_source ? (
+                                        {channel.managed_source && !channel.managed_source.plugin_id ? (
                                             <div className="mt-3 flex flex-wrap gap-2">
                                                 <Button
                                                     type="button"

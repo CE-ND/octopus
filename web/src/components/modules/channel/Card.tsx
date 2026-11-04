@@ -62,7 +62,7 @@ export function Card({ channel, stats, layout = 'grid' }: { channel: Channel; st
                             {channel.managed ? (
                                 <div className="mt-1">
                                     <span className="inline-flex rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300">
-                                        站点投影
+                                        {channel.managed_source?.plugin_id ? '插件渠道' : '站点投影'}
                                     </span>
                                 </div>
                             ) : null}

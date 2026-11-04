@@ -65,12 +65,13 @@ type ClaudeCodeModelGroups struct {
 
 // AgentAutoConfigRequest 把网关、密钥与选定的模型分组合并进 agent 配置。
 type AgentAutoConfigRequest struct {
-	Agent             string                 `json:"agent"`
-	APIKeyID          int                    `json:"api_key_id"`
-	ModelGroups       *ClaudeCodeModelGroups `json:"model_groups,omitempty"`
-	CodexModelGroupID int                    `json:"codex_model_group_id,omitempty"` // 0 表示保留 Codex 当前模型
-	CurrentContent    *string                `json:"current_content,omitempty"`      // 编辑器草稿；省略时读取磁盘
-	DSH               *DshAutoConfigOptions  `json:"dsh,omitempty"`
+	Agent                string                 `json:"agent"`
+	APIKeyID             int                    `json:"api_key_id"`
+	ModelGroups          *ClaudeCodeModelGroups `json:"model_groups,omitempty"`
+	CodexModelGroupID    int                    `json:"codex_model_group_id,omitempty"`     // 0 表示保留 Codex 当前模型
+	KimiCodeModelGroupID int                    `json:"kimi_code_model_group_id,omitempty"` // Kimi Code 自动配置必填
+	CurrentContent       *string                `json:"current_content,omitempty"`          // 编辑器草稿；省略时读取磁盘
+	DSH                  *DshAutoConfigOptions  `json:"dsh,omitempty"`
 }
 
 // AgentAutoConfigResponse 自动配置结果：补丁后的配置内容（由前端填入编辑器草稿）

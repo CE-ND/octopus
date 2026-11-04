@@ -15,14 +15,51 @@ import {
     type AgentConfigFileView,
 } from '@/api/endpoints/agent-config';
 import { useAPIKeyList, useCreateAPIKey } from '@/api/endpoints/apikey';
+import { useGroupList } from '@/api/endpoints/group';
 import { AgentConfigHeader } from './AgentConfigHeader';
 import { ClaudeCodeConfigContent } from './ClaudeCodeConfigContent';
 import { CodexConfigContent } from './CodexConfigContent';
 import { DeepSeekHarnessConfigContent } from './DeepSeekHarnessConfigContent';
+import { AgentModelGroupSelect, type AgentModelGroup } from './AgentModelGroupSelect';
 import { MorphingDialogContent, useMorphingDialog } from '@/components/ui/morphing-dialog';
 import { AgentConfigResizeProvider, useAgentConfigResizeState } from './AgentConfigResize';
 
 const DRAFT_PREFIX = 'agent-config-draft';
+
+// 只读取顶层键，用于在 Kimi Code 快速配置中回显当前默认模型。
+function tomlTopLevelString(content: string, key: string): string {
+    let inTopLevel = true;
+    for (const line of content.split(/\r?\n/)) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith('[')) {
+            inTopLevel = false;
+            continue;
+        }
+        if (!inTopLevel) continue;
+        const assignment = line.match(/^\s*([\w-]+)\s*=\s*("(?:\\.|[^"\\])*"|'[^']*')\s*(?:#.*)?$/);
+        if (assignment?.[1] !== key) continue;
+        if (assignment[2].startsWith("'")) return assignment[2].slice(1, -1);
+        try { return JSON.parse(assignment[2]) as string; } catch { return ''; }
+    }
+    return '';
+}
+
+function tomlTableString(content: string, table: string, key: string): string {
+    let currentTable = '';
+    for (const line of content.split(/\r?\n/)) {
+        const header = line.trim().match(/^\[([^\]]+)\]\s*(?:#.*)?$/);
+        if (header) {
+            currentTable = header[1].trim().replace(/\s*\.\s*/g, '.').replace(/["']/g, '');
+            continue;
+        }
+        if (currentTable !== table) continue;
+        const assignment = line.match(/^\s*([\w-]+)\s*=\s*("(?:\\.|[^"\\])*"|'[^']*')\s*(?:#.*)?$/);
+        if (assignment?.[1] !== key) continue;
+        if (assignment[2].startsWith("'")) return assignment[2].slice(1, -1);
+        try { return JSON.parse(assignment[2]) as string; } catch { return ''; }
+    }
+    return '';
+}
 
 export function AgentConfigDialogPanel({ agent, transition }: { agent: string; transition: Transition }) {
     const { isOpen } = useMorphingDialog();
@@ -69,8 +106,11 @@ function AgentConfigFileContent({ agent }: { agent: string }) {
     const saveMutation = useSaveAgentConfig(agent);
     const autoConfigMutation = useAgentAutoConfig(agent);
     const apiKeyList = useAPIKeyList();
+    const groupsQuery = useGroupList();
     const createAPIKey = useCreateAPIKey();
+    const isKimiCode = agent === 'kimi-code';
     const [selectedKeyId, setSelectedKeyId] = useState<number | null>(null);
+    const [modelGroupId, setModelGroupId] = useState(0);
     const [drafts, setDrafts] = useState<Record<string, string>>({});
     const [savingKeys, setSavingKeys] = useState<string[]>([]);
 
@@ -93,6 +133,28 @@ function AgentConfigFileContent({ agent }: { agent: string }) {
 
     const autoConfigFileKey = configQuery.data?.auto_config_file_key ?? '';
     const autoConfigSupported = !!autoConfigFileKey;
+    const autoConfigTargetFile = configQuery.data?.files.find((file) => file.key === autoConfigFileKey);
+    const targetContent = autoConfigTargetFile ? draftFor(autoConfigTargetFile) : '';
+    const currentDefaultModel = tomlTopLevelString(targetContent, 'default_model');
+    const currentConfigKey = isKimiCode ? tomlTableString(targetContent, 'providers.Octopus', 'api_key') : '';
+    const existingKey = apiKeyList.data?.find((key) => key.api_key === currentConfigKey);
+    const effectiveKeyId = selectedKeyId ?? existingKey?.id ?? null;
+    const savedGroupName = currentDefaultModel.startsWith('Octopus/') ? currentDefaultModel.slice('Octopus/'.length) : '';
+    const groups = (groupsQuery.data ?? [])
+        .filter((group): group is AgentModelGroup => typeof group.id === 'number' && group.id > 0)
+        .sort((a, b) => a.name.localeCompare(b.name));
+    const savedGroup = groups.find((group) => group.name === savedGroupName);
+    const selectedGroupId = modelGroupId || savedGroup?.id || 0;
+    const selectedGroup = groups.find((group) => group.id === selectedGroupId);
+    const selectedKey = apiKeyList.data?.find((key) => key.id === effectiveKeyId);
+    const allowedModelGroups = selectedKey?.supported_models?.trim()
+        ? new Set(selectedKey.supported_models.split(',').map((name) => name.trim()))
+        : undefined;
+    const modelGroupReady = !isKimiCode || (
+        !!selectedGroup
+        && (!allowedModelGroups || allowedModelGroups.has(selectedGroup.name))
+    );
+    const canApplyAutoConfig = !!effectiveKeyId && modelGroupReady && !autoConfigMutation.isPending;
 
     const handleCreateKey = () => {
         createAPIKey.mutate(
@@ -108,11 +170,11 @@ function AgentConfigFileContent({ agent }: { agent: string }) {
     };
 
     const handleAutoConfig = () => {
-        if (!selectedKeyId || !autoConfigFileKey) return;
-        const targetFile = configQuery.data?.files.find((file) => file.key === autoConfigFileKey);
+        if (!canApplyAutoConfig || !effectiveKeyId || !autoConfigFileKey) return;
         autoConfigMutation.mutate({
-            api_key_id: selectedKeyId,
-            current_content: targetFile ? draftFor(targetFile) : undefined,
+            api_key_id: effectiveKeyId,
+            ...(isKimiCode ? { kimi_code_model_group_id: selectedGroupId } : {}),
+            current_content: autoConfigTargetFile ? draftFor(autoConfigTargetFile) : undefined,
         }, {
             onSuccess: (res) => {
                 setDraft(res.file_key, res.content);
@@ -148,7 +210,7 @@ function AgentConfigFileContent({ agent }: { agent: string }) {
 
     return (
         <>
-            <AgentConfigHeader agent={agent} />
+            <AgentConfigHeader agent={agent} description={isKimiCode ? t('kimiCodeConfig.description') : undefined} />
 
             {/* 正文参与位移和父级缩放补偿，保持原字号且无需等待动画结束。 */}
             <motion.div layout="position" className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 pb-6">
@@ -174,7 +236,7 @@ function AgentConfigFileContent({ agent }: { agent: string }) {
                         <p className="text-xs text-muted-foreground">{t('autoConfigDescription')}</p>
                         <div className="flex flex-wrap items-center gap-2">
                             <select
-                                value={selectedKeyId ?? ''}
+                                value={effectiveKeyId ?? ''}
                                 onChange={(e) => setSelectedKeyId(e.target.value ? Number(e.target.value) : null)}
                                 className="h-8 min-w-40 rounded-lg border border-border bg-background px-2 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                             >
@@ -204,7 +266,7 @@ function AgentConfigFileContent({ agent }: { agent: string }) {
                                 type="button"
                                 size="sm"
                                 className="ml-auto rounded-xl"
-                                disabled={!selectedKeyId || autoConfigMutation.isPending}
+                                disabled={!canApplyAutoConfig}
                                 onClick={handleAutoConfig}
                             >
                                 {autoConfigMutation.isPending ? (
@@ -215,6 +277,32 @@ function AgentConfigFileContent({ agent }: { agent: string }) {
                                 {t('autoConfigApply')}
                             </Button>
                         </div>
+                        {isKimiCode && (
+                            <div className="space-y-1.5">
+                                <label htmlFor={`${agent}-model-group`} className="text-xs text-muted-foreground">
+                                    {t('kimiCodeConfig.modelGroup')}
+                                </label>
+                                <AgentModelGroupSelect
+                                    id={`${agent}-model-group`}
+                                    value={selectedGroupId}
+                                    groups={groups}
+                                    allowed={allowedModelGroups}
+                                    placeholder={t('kimiCodeConfig.selectModel')}
+                                    disabled={groupsQuery.isLoading || autoConfigMutation.isPending}
+                                    onChange={setModelGroupId}
+                                />
+                                <p className="text-xs text-muted-foreground">{t('kimiCodeConfig.modelGroupHint')}</p>
+                                {currentDefaultModel && (
+                                    <p className="truncate text-xs text-muted-foreground" title={currentDefaultModel}>
+                                        {t('kimiCodeConfig.currentModel', { model: currentDefaultModel })}
+                                    </p>
+                                )}
+                                {groupsQuery.error && <p role="alert" className="text-xs text-destructive">{t('kimiCodeConfig.groupsFailed')}</p>}
+                                {!groupsQuery.isLoading && !groupsQuery.error && groups.length === 0 && (
+                                    <p className="text-xs text-muted-foreground">{t('kimiCodeConfig.noGroups')}</p>
+                                )}
+                            </div>
+                        )}
                     </div>
                 )}
                 {configQuery.data?.files.map((file) => {

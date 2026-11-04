@@ -97,6 +97,7 @@ func InitDB(dbType, dsn string, debug bool) error {
 		&model.GroupHealthAttempt{},
 		&model.WSResponseAffinity{},
 		&model.SiteChannelOutlierState{},
+		&model.PluginChannelBinding{},
 		&migrate.MigrationRecord{},
 	}
 	if dbType == "sqlite" {

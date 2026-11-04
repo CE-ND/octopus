@@ -26,6 +26,10 @@ func detectAgentCaller(c *gin.Context) string {
 	if strings.Contains(ua, "deepseek-harness/") {
 		return "deepseek-harness"
 	}
+	// Kimi Code 通过 X-Msh-Platform 区分桌面端 / CLI / VS Code，UA 可被自定义覆盖。
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(c.GetHeader("X-Msh-Platform"))), "kimi_code") {
+		return "kimi-code"
+	}
 	// 强信号：官方 CLI 独有的稳定请求头
 	if strings.TrimSpace(c.GetHeader(claudeSessionIDHeader)) != "" || strings.Contains(ua, "claude-cli") {
 		return agentClaudeCode

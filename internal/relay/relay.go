@@ -509,6 +509,22 @@ func (ra *relayAttempt) attempt() attemptResult {
 		if written {
 			ra.collectResponse()
 		}
+		// Some clients close the HTTP stream as soon as they receive the
+		// final chunk. If the adapter already has a complete response (a
+		// finish reason was observed), that is a successful request rather
+		// than a partial/cancelled one.
+		if internalResponseComplete(ra.metrics.InternalResponse) {
+			ra.usedKey.TotalCost += ra.metrics.Stats.InputCost + ra.metrics.Stats.OutputCost
+			op.ChannelKeyUpdate(ra.usedKey)
+			op.StatsChannelUpdate(ra.channel.ID, dbmodel.StatsMetrics{
+				WaitTime:       span.Duration().Milliseconds(),
+				RequestSuccess: 1,
+			})
+			balancer.RecordSuccess(ra.channel.ID, ra.usedKey.ID, ra.internalRequest.Model)
+			balancer.SetSticky(ra.apiKeyID, ra.routingKey, ra.channel.ID, ra.usedKey.ID)
+			span.End(dbmodel.AttemptSuccess, statusCode, "")
+			return attemptResult{Success: true}
+		}
 		op.ChannelKeyUpdate(ra.usedKey)
 		span.End(dbmodel.AttemptFailed, statusCode, fwdErr.Error())
 		return attemptResult{
@@ -1463,6 +1479,21 @@ func (ra *relayAttempt) handleResponse(ctx context.Context, response *http.Respo
 	return nil
 }
 
+// internalResponseComplete reports whether the adapter has observed a final
+// finish reason. A client that closes the connection after this point has
+// already received the complete answer.
+func internalResponseComplete(resp *model.InternalLLMResponse) bool {
+	if resp == nil {
+		return false
+	}
+	for _, choice := range resp.Choices {
+		if choice.FinishReason != nil && strings.TrimSpace(*choice.FinishReason) != "" {
+			return true
+		}
+	}
+	return false
+}
+
 // collectResponse 收集响应信息
 func (ra *relayAttempt) collectResponse() {
 	if ra == nil || ra.inAdapter == nil || ra.metrics == nil {
@@ -1471,7 +1502,10 @@ func (ra *relayAttempt) collectResponse() {
 	if !ra.responseCollected.CompareAndSwap(false, true) {
 		return
 	}
-	internalResponse, err := ra.inAdapter.GetInternalResponse(ra.requestContext())
+	// The adapter already holds the parsed stream; use a background context so
+	// a client disconnect does not prevent collecting a response that is
+	// already complete.
+	internalResponse, err := ra.inAdapter.GetInternalResponse(context.Background())
 	if err != nil {
 		log.Debugf("collectResponse: failed to get internal response: %v", err)
 		return

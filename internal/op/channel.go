@@ -171,6 +171,11 @@ func ChannelUpdate(req *model.ChannelUpdateRequest, ctx context.Context) (*model
 		} else if managed {
 			return nil, fmt.Errorf("managed site channel is read-only; please edit it from the site account")
 		}
+		if _, managed, err := PluginChannelBindingGetByChannelID(req.ID, ctx); err != nil {
+			return nil, err
+		} else if managed {
+			return nil, fmt.Errorf("plugin managed channel is read-only; please edit it from the plugin page")
+		}
 	}
 
 	tx := db.GetDB().WithContext(ctx).Begin()
@@ -358,6 +363,11 @@ func ChannelEnabled(id int, enabled bool, ctx context.Context) error {
 	} else if managed {
 		return fmt.Errorf("managed site channel is read-only; please enable or disable it from the site account")
 	}
+	if _, managed, err := PluginChannelBindingGetByChannelID(id, ctx); err != nil {
+		return err
+	} else if managed {
+		return fmt.Errorf("plugin managed channel is read-only; please enable or disable it from the plugin page")
+	}
 	if err := db.GetDB().WithContext(ctx).Model(&model.Channel{}).Where("id = ?", id).Update("enabled", enabled).Error; err != nil {
 		return err
 	}
@@ -406,6 +416,11 @@ func channelDel(id int, ctx context.Context, bypassManagedCheck bool) error {
 			return err
 		} else if managed {
 			return fmt.Errorf("managed site channel cannot be deleted directly; delete the site account or site binding instead")
+		}
+		if _, managed, err := PluginChannelBindingGetByChannelID(id, ctx); err != nil {
+			return err
+		} else if managed {
+			return fmt.Errorf("plugin managed channel cannot be deleted directly; please remove it from the plugin page")
 		}
 	}
 

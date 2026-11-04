@@ -65,6 +65,9 @@ func TestDetectAgentCallerRegistryAgents(t *testing.T) {
 		expected string
 	}{
 		{map[string]string{"User-Agent": "zcode-cli/1.2.0"}, "zcode"},
+		{map[string]string{"User-Agent": "kimi-code-desktop/1.2.1"}, "kimi-code"},
+		{map[string]string{"User-Agent": "KimiCode/0.9"}, "kimi-code"},
+		{map[string]string{"User-Agent": "Kimi Code CLI/1.0"}, "kimi-code"},
 		{map[string]string{"User-Agent": "WorkBuddy/2.0 (desktop)"}, "workbuddy"},
 		{map[string]string{"User-Agent": "codebuddy-cli/3.1"}, "codebuddy"},
 		{map[string]string{"User-Agent": "github-copilot-cli/1.0"}, "copilot"},
@@ -74,6 +77,16 @@ func TestDetectAgentCallerRegistryAgents(t *testing.T) {
 		if got := detectAgentCallerWithHeaders(t, tc.headers); got != tc.expected {
 			t.Fatalf("expected %s for %v, got %s", tc.expected, tc.headers, got)
 		}
+	}
+}
+
+func TestDetectAgentCallerKimiCodeHeader(t *testing.T) {
+	headers := map[string]string{
+		"User-Agent":     "custom-client/1.0",
+		"X-Msh-Platform": "kimi_code_desktop",
+	}
+	if got := detectAgentCallerWithHeaders(t, headers); got != "kimi-code" {
+		t.Fatalf("expected kimi-code for Kimi platform header, got %s", got)
 	}
 }
 

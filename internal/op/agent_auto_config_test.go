@@ -11,6 +11,7 @@ import (
 	"github.com/bestruirui/octopus/internal/conf"
 	"github.com/bestruirui/octopus/internal/db"
 	"github.com/bestruirui/octopus/internal/model"
+	toml "github.com/pelletier/go-toml/v2"
 )
 
 // setTestGateway 设定网关地址来源（conf 未在测试中初始化，需显式设置）
@@ -400,6 +401,165 @@ func seedClaudeModelGroups(t *testing.T) {
 	}
 }
 
+func TestPatchKimiCodeTomlReplacesOwnedEntriesAndPreservesRest(t *testing.T) {
+	content := `# Kimi Code 配置
+default_model = "Kimi For Coding/kimi-k3.1-pro"
+default_provider = "Kimi For Coding"
+
+[providers."Kimi For Coding"]
+type = "anthropic"
+base_url = "https://tokenhub.example.com/plan/anthropic"
+api_key = "sk-existing"
+
+[providers.Octopus]
+type = "openai"
+base_url = "https://old-octopus.example.com"
+api_key_env = "OLD_OCTOPUS_KEY"
+oauth = { storage = "file", key = "old-oauth" }
+
+[models."Kimi For Coding/kimi-k3.1-pro"]
+provider = "Kimi For Coding"
+model = "kimi-k3.1-pro"
+max_context_size = 1048576
+
+[models."Octopus/old-group"]
+provider = "Octopus"
+model = "old-group"
+max_context_size = 8192
+`
+	got := patchKimiCodeToml(content, "sk-new", "http://127.0.0.1:18777", "route-default")
+	for _, want := range []string{
+		`# Kimi Code 配置`,
+		`default_model = "Octopus/route-default"`,
+		`default_provider = "Octopus"`,
+		`[providers."Kimi For Coding"]`,
+		`base_url = "https://tokenhub.example.com/plan/anthropic"`,
+		`[models."Kimi For Coding/kimi-k3.1-pro"]`,
+		`max_context_size = 1048576`,
+		`[providers.Octopus]`,
+		`type = "anthropic"`,
+		`base_url = "http://127.0.0.1:18777"`,
+		`api_key = "sk-new"`,
+		`[models."Octopus/route-default"]`,
+		`provider = "Octopus"`,
+		`model = "route-default"`,
+		`display_name = "route-default"`,
+		`capabilities = ["thinking", "tool_use"]`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("patched Kimi Code TOML missing %q:\n%s", want, got)
+		}
+	}
+	for _, gone := range []string{"OLD_OCTOPUS_KEY", "old-octopus.example.com", "old-oauth"} {
+		if strings.Contains(got, gone) {
+			t.Fatalf("patched Kimi Code TOML should remove %q:\n%s", gone, got)
+		}
+	}
+	if err := validateAgentConfigFile("toml", got); err != nil {
+		t.Fatalf("generated TOML is invalid: %v", err)
+	}
+	var parsed map[string]any
+	if err := toml.Unmarshal([]byte(got), &parsed); err != nil {
+		t.Fatal(err)
+	}
+	if parsed["default_model"] != "Octopus/route-default" {
+		t.Fatalf("default_model = %v", parsed["default_model"])
+	}
+	models := parsed["models"].(map[string]any)
+	model := models["Octopus/route-default"].(map[string]any)
+	if model["provider"] != "Octopus" || model["model"] != "route-default" || model["max_context_size"] != int64(kimiCodeDefaultMaxContext) {
+		t.Fatalf("unexpected generated model: %#v", model)
+	}
+	again := patchKimiCodeToml(got, "sk-new", "http://127.0.0.1:18777", "route-default")
+	if again != got {
+		t.Fatalf("patching the same Kimi Code config twice must be idempotent:\nfirst:\n%s\nsecond:\n%s", got, again)
+	}
+}
+
+func TestPatchKimiCodeTomlEmptyAndCRLF(t *testing.T) {
+	got := patchKimiCodeToml("", "sk-new", "http://127.0.0.1:18777", "route-default")
+	for _, want := range []string{
+		`default_provider = "Octopus"`,
+		`default_model = "Octopus/route-default"`,
+		`[providers.Octopus]`,
+		`[models."Octopus/route-default"]`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("empty Kimi Code config missing %q:\n%s", want, got)
+		}
+	}
+	if err := validateAgentConfigFile("toml", got); err != nil {
+		t.Fatalf("empty generated TOML is invalid: %v", err)
+	}
+
+	crlf := patchKimiCodeToml("default_model = \"old/model\"\r\n\r\n[providers.other]\r\ntype = \"openai\"\r\n", "sk-new", "http://127.0.0.1:18777", "route-default")
+	if !strings.Contains(crlf, "\r\n") || strings.Contains(strings.ReplaceAll(crlf, "\r\n", ""), "\n") {
+		t.Fatalf("Kimi Code patch must preserve CRLF:\n%q", crlf)
+	}
+	if err := validateAgentConfigFile("toml", crlf); err != nil {
+		t.Fatalf("CRLF generated TOML is invalid: %v", err)
+	}
+}
+
+func TestPatchKimiCodeTomlQuotesModelAlias(t *testing.T) {
+	got := patchKimiCodeToml("", "sk-new", "http://127.0.0.1:18777", "group.with-dot")
+	if !strings.Contains(got, `[models."Octopus/group.with-dot"]`) {
+		t.Fatalf("model alias with a dot must stay a single quoted table key:\n%s", got)
+	}
+	if err := validateAgentConfigFile("toml", got); err != nil {
+		t.Fatalf("quoted model alias generated invalid TOML: %v", err)
+	}
+}
+
+func TestAgentAutoConfigPrepareKimiCodeModelGroup(t *testing.T) {
+	setTestGateway()
+	t.Setenv("KIMI_CODE_HOME", t.TempDir())
+	keyID := seedAutoConfigKey(t)
+	seedClaudeModelGroups(t)
+	original := "# keep comment\r\ndefault_model = \"old/model\"\r\n\r\n[providers.old]\r\ntype = \"openai\"\r\nbase_url = \"https://old.example.com\"\r\napi_key = \"sk-old\"\r\n"
+	path := filepath.Join(os.Getenv("KIMI_CODE_HOME"), "config.toml")
+	if err := os.WriteFile(path, []byte(original), 0600); err != nil {
+		t.Fatal(err)
+	}
+	fileKey, content, err := AgentAutoConfigPrepare(model.AgentAutoConfigRequest{
+		Agent: "kimi-code", APIKeyID: keyID, KimiCodeModelGroupID: 1999001,
+	}, context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fileKey != "config" || !strings.Contains(content, `default_model = "Octopus/route-default"`) {
+		t.Fatalf("expected the selected group in Kimi Code config: %s", content)
+	}
+	if !strings.Contains(content, "\r\n") || !strings.Contains(content, `# keep comment`) {
+		t.Fatal("Kimi Code formatting and comments must be preserved")
+	}
+	disk, _ := os.ReadFile(path)
+	if string(disk) != original {
+		t.Fatal("preparing Kimi Code configuration must not write the file")
+	}
+	views, err := AgentConfigList("kimi-code")
+	if err != nil || len(views) != 1 || views[0].Key != "config" || views[0].Path != path {
+		t.Fatalf("Kimi Code config descriptor not resolved: views=%#v err=%v", views, err)
+	}
+	if err := AgentConfigSave("kimi-code", []AgentConfigSaveInput{{Key: fileKey, Content: content, BaseModifiedAt: views[0].ModifiedAt}}); err != nil {
+		t.Fatalf("save generated Kimi Code config: %v", err)
+	}
+	saved, err := os.ReadFile(path)
+	if err != nil || string(saved) != content {
+		t.Fatalf("saved Kimi Code config mismatch: %v", err)
+	}
+	for _, req := range []model.AgentAutoConfigRequest{
+		{Agent: "kimi-code", APIKeyID: keyID},
+		{Agent: "kimi-code", APIKeyID: keyID, KimiCodeModelGroupID: -1},
+		{Agent: "kimi-code", APIKeyID: keyID, KimiCodeModelGroupID: 1999099},
+		{Agent: "codex", APIKeyID: keyID, KimiCodeModelGroupID: 1999001},
+	} {
+		if _, _, err := AgentAutoConfigPrepare(req, context.Background()); err == nil {
+			t.Fatal("invalid Kimi Code model selection must be rejected")
+		}
+	}
+}
+
 func TestMergeClaudeSettingsEmptyContent(t *testing.T) {
 	got, err := mergeClaudeSettings("", "sk-new", "http://127.0.0.1:18777")
 	if err != nil {
@@ -411,8 +571,8 @@ func TestMergeClaudeSettingsEmptyContent(t *testing.T) {
 }
 
 func TestAgentAutoConfigSupported(t *testing.T) {
-	if !AgentAutoConfigSupported("codex") || !AgentAutoConfigSupported("claude-code") {
-		t.Fatalf("codex and claude-code should support auto config")
+	if !AgentAutoConfigSupported("codex") || !AgentAutoConfigSupported("claude-code") || !AgentAutoConfigSupported("kimi-code") {
+		t.Fatalf("codex, claude-code and kimi-code should support auto config")
 	}
 	if AgentAutoConfigSupported("zcode") || AgentAutoConfigSupported("workbuddy") {
 		t.Fatalf("zcode/workbuddy should not support auto config yet")

@@ -79,7 +79,7 @@ export function Channel() {
     }, [sortedChannels, searchTerm, targetedChannelId]);
 
     const visibleManualChannels = useMemo(
-        () => visibleChannels.filter((channel) => !channel.raw.managed),
+        () => visibleChannels.filter((channel) => !channel.raw.managed || !!channel.raw.managed_source?.plugin_id),
         [visibleChannels],
     );
 

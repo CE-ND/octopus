@@ -39,6 +39,13 @@ func geminiHomeDir() string {
 	return homeJoin(".gemini")
 }
 
+func kimiCodeHomeDir() string {
+	if root := strings.TrimSpace(os.Getenv("KIMI_CODE_HOME")); root != "" {
+		return root
+	}
+	return homeJoin(".kimi-code")
+}
+
 // AgentConfigFile agent 可编辑配置文件的描述符。
 // Key 是前端写入时的白名单标识，真实路径永远由注册表解析，客户端不传路径。
 type AgentConfigFile struct {
@@ -108,6 +115,22 @@ var AgentDefinitions = []AgentDefinition{
 		Name:      "ZCode",
 		Dirs:      envOrHomeDir("ZCODE_HOME", ".zcode"),
 		UAMatches: []string{"zcode"},
+	},
+	{
+		ID:        "kimi-code",
+		Name:      "Kimi Code",
+		Dirs:      func() []string { return []string{kimiCodeHomeDir()} },
+		UAMatches: []string{"kimi-code", "kimicode", "kimi code"},
+		ConfigFiles: func() []AgentConfigFile {
+			home := kimiCodeHomeDir()
+			if home == "" {
+				return nil
+			}
+			return []AgentConfigFile{
+				{Key: "config", Path: filepath.Join(home, "config.toml"), Language: "toml", Sensitive: true},
+			}
+		},
+		AutoConfigFileKey: "config",
 	},
 	{
 		ID:   "workbuddy",
