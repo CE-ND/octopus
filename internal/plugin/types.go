@@ -25,14 +25,15 @@ type installedFile struct {
 
 // ProviderInfo 是插件宿主暴露给 Octopus 的 provider 状态。
 type ProviderInfo struct {
-	PluginID   string      `json:"plugin_id"`
-	ProviderID string      `json:"provider_id"`
-	Name       string      `json:"name"`
-	LoggedIn   bool        `json:"logged_in"`
-	Account    string      `json:"account,omitempty"`
-	Error      string      `json:"error,omitempty"`
-	Models     []ModelInfo `json:"models"`
-	Routes     []RouteInfo `json:"routes"`
+	PluginID      string      `json:"plugin_id"`
+	ProviderID    string      `json:"provider_id"`
+	PluginManaged bool        `json:"plugin_managed,omitempty"` // 凭据和交互由插件自行管理。
+	Name          string      `json:"name"`
+	LoggedIn      bool        `json:"logged_in"`
+	Account       string      `json:"account,omitempty"`
+	Error         string      `json:"error,omitempty"`
+	Models        []ModelInfo `json:"models"`
+	Routes        []RouteInfo `json:"routes"`
 }
 
 // ModelInfo 是插件 provider 的一个模型。
@@ -138,4 +139,16 @@ type ProvidersResponse struct {
 // HostStatusResponse 是插件宿主 /status 的轻量响应。
 type HostStatusResponse struct {
 	Plugins []PluginInfo `json:"plugins"`
+}
+
+// CallRequest/CallResult 是插件页面的通用调用协议，不解释插件业务字段。
+type CallRequest struct {
+	PluginID string          `json:"plugin_id" binding:"required"`
+	Method   string          `json:"method" binding:"required"`
+	Params   json.RawMessage `json:"params"`
+}
+
+type CallResult struct {
+	Data    json.RawMessage `json:"data"`
+	Refresh bool            `json:"refresh"`
 }

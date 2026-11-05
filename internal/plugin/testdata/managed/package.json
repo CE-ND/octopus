@@ -1,0 +1,9 @@
+{
+  "name": "@octopus/managed-test",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "unavailable-legacy-entry.mjs",
+  "octopus": {
+    "entry": "entry.mjs"
+  }
+}

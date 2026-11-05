@@ -67,6 +67,7 @@ export type PluginRoute = {
 export type PluginProvider = {
     plugin_id: string;
     provider_id: string;
+    plugin_managed?: boolean;
     name: string;
     logged_in: boolean;
     account?: string;
@@ -116,6 +117,20 @@ const pluginKeys = {
     providers: ['plugin', 'providers'] as const,
     methods: (pluginID: string, providerID: string) => ['plugin', 'methods', pluginID, providerID] as const,
 };
+
+export function usePluginCall() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: (input: { plugin_id: string; method: string; params?: unknown }) =>
+            apiClient.post<{ data: unknown; refresh: boolean }>('/api/v1/plugin/call', input),
+        onSuccess: (result) => {
+            if (!result.refresh) return;
+            void qc.invalidateQueries({ queryKey: ['plugin'] });
+            void qc.invalidateQueries({ queryKey: ['channels'] });
+            void qc.invalidateQueries({ queryKey: ['groups'] });
+        },
+    });
+}
 
 export function usePluginStatus() {
     return useQuery({

@@ -1,7 +1,9 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import { useTranslations } from 'next-intl';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useLocale, useTranslations } from 'next-intl';
+import { useTheme } from 'next-themes';
+import { usePluginPageBridge } from './use-plugin-page-bridge';
 import { useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, CheckCircle2, ChevronDown, LayoutDashboard, Loader2, LogIn, LogOut, Puzzle, RefreshCw, Settings2, Store, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -50,6 +52,13 @@ export function Plugin() {
     const [configTarget, setConfigTarget] = useState<PluginInfo | null>(null);
     const [pageTarget, setPageTarget] = useState<{ pluginID: string; page: PluginUIPage } | null>(null);
     const [manageTarget, setManageTarget] = useState<PluginInfo | null>(null);
+
+    // 详情弹窗始终读取最新查询数据，保证从设置/登录等子弹窗返回后状态是新的
+    const managePlugin = manageTarget
+        ? (status.data?.plugins ?? []).find((plugin) => plugin.id === manageTarget.id) ?? manageTarget
+        : null;
+    // 插件声明 slot:"manage" 的页面时，管理弹窗主体改为渲染该页面
+    const managePage = managePlugin?.pages?.find((page) => page.slot === 'manage') ?? null;
 
     const providersByPlugin = useMemo(() => {
         const map = new Map<string, PluginProvider[]>();
@@ -183,7 +192,7 @@ export function Plugin() {
                 />
             )}
 
-            {manageTarget && (
+            {managePlugin && (
                 <Dialog
                     open={!!manageTarget}
                     onOpenChange={(open) => {
@@ -193,33 +202,37 @@ export function Plugin() {
                     <DialogContent className="sm:max-w-6xl sm:aspect-[4/3] sm:h-auto rounded-3xl p-0 overflow-hidden">
                         <div className="flex h-full min-h-0 flex-col">
                             <DialogHeader className="border-b border-border px-6 pb-4 pr-14 pt-6">
-                                <DialogTitle className="text-xl">{manageTarget.display_name || manageTarget.id}</DialogTitle>
-                                <DialogDescription>{t('manageDescription')}</DialogDescription>
+                                <DialogTitle className="text-xl">{managePlugin.display_name || managePlugin.id}</DialogTitle>
+                                <DialogDescription>{managePage ? t('managePageDescription') : t('manageDescription')}</DialogDescription>
                             </DialogHeader>
-                            <div className="min-h-0 overflow-y-auto px-6 py-5">
-                                <PluginCard
-                                    key={manageTarget.id}
-                                    plugin={manageTarget}
-                                    providers={providersByPlugin.get(manageTarget.id) ?? []}
-                                    defaultExpanded
-                                    embedded
-                                    onLogin={(provider) => {
-                                        const target = manageTarget;
-                                        setManageTarget(null);
-                                        setLoginTarget({ pluginID: target.id, providerID: provider.provider_id, name: provider.name });
+                            {managePage ? (
+                                <PluginManagePage
+                                    plugin={managePlugin}
+                                    providers={providersByPlugin.get(managePlugin.id) ?? []}
+                                    page={managePage}
+                                    onLogin={(providerId) => {
+                                        const provider = (providersByPlugin.get(managePlugin.id) ?? []).find((item) => item.provider_id === providerId);
+                                        setLoginTarget({ pluginID: managePlugin.id, providerID: providerId, name: provider?.name ?? providerId });
                                     }}
-                                    onConfig={() => {
-                                        const target = manageTarget;
-                                        setManageTarget(null);
-                                        setConfigTarget(target);
-                                    }}
-                                    onPage={(page) => {
-                                        const target = manageTarget;
-                                        setManageTarget(null);
-                                        setPageTarget({ pluginID: target.id, page });
-                                    }}
+                                    onConfig={() => setConfigTarget(managePlugin)}
+                                    onPage={(page) => setPageTarget({ pluginID: managePlugin.id, page })}
                                 />
-                            </div>
+                            ) : (
+                                <div className="min-h-0 overflow-y-auto px-6 py-5">
+                                    <PluginCard
+                                        key={managePlugin.id}
+                                        plugin={managePlugin}
+                                        providers={providersByPlugin.get(managePlugin.id) ?? []}
+                                        defaultExpanded
+                                        embedded
+                                        onLogin={(provider) => {
+                                            setLoginTarget({ pluginID: managePlugin.id, providerID: provider.provider_id, name: provider.name });
+                                        }}
+                                        onConfig={() => setConfigTarget(managePlugin)}
+                                        onPage={(page) => setPageTarget({ pluginID: managePlugin.id, page })}
+                                    />
+                                </div>
+                            )}
                         </div>
                     </DialogContent>
                 </Dialog>
@@ -400,9 +413,6 @@ function PluginCard({
     embedded?: boolean;
 }) {
     const t = useTranslations('plugin');
-    const toggle = useTogglePlugin();
-    const remove = useRemovePlugin();
-    const refresh = useRefreshPluginModels();
     const logout = useLogoutPlugin();
     const [expanded, setExpanded] = useState(defaultExpanded);
 
@@ -447,38 +457,7 @@ function PluginCard({
                         </div>
                     </div>
                 )}
-                <div className="flex items-center gap-2">
-                    {plugin.pages?.map((page) => (
-                        <Button key={page.id} variant="ghost" size="icon-sm" title={page.title || t('openPage')} onClick={() => onPage(page)}>
-                            <LayoutDashboard className="size-4" />
-                        </Button>
-                    ))}
-                    {plugin.config_schema && (
-                        <Button variant="ghost" size="icon-sm" title={t('config')} onClick={onConfig}>
-                            <Settings2 className="size-4" />
-                        </Button>
-                    )}
-                    <Button variant="ghost" size="icon-sm" title={t('refresh')} onClick={() => refresh.mutate()} disabled={refresh.isPending}>
-                        <RefreshCw className={`size-4 ${refresh.isPending ? 'animate-spin' : ''}`} />
-                    </Button>
-                    <Switch
-                        checked={plugin.enabled}
-                        onCheckedChange={(checked) => toggle.mutate({ id: plugin.id, enabled: checked })}
-                        disabled={toggle.isPending}
-                    />
-                    <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        title={t('remove')}
-                        className="text-destructive hover:text-destructive"
-                        onClick={() => {
-                            if (window.confirm(t('removeConfirm', { name: plugin.display_name || plugin.id }))) remove.mutate(plugin.id);
-                        }}
-                        disabled={remove.isPending}
-                    >
-                        <Trash2 className="size-4" />
-                    </Button>
-                </div>
+                <PluginActionRow plugin={plugin} onConfig={onConfig} onPage={onPage} />
             </div>
 
             {expanded && (
@@ -503,7 +482,16 @@ function PluginCard({
                                 <span className="text-xs text-muted-foreground">
                                     {provider.logged_in ? t('modelCount', { count: provider.models.length }) : t('loginToLoadModels')}
                                 </span>
-                                {provider.logged_in ? (
+                                {provider.plugin_managed ? (
+                                    <Button variant="outline" size="sm" className="rounded-lg"
+                                        disabled={!plugin.pages?.some((page) => page.slot === 'manage')}
+                                        onClick={() => {
+                                            const page = plugin.pages?.find((item) => item.slot === 'manage');
+                                            if (page) onPage(page);
+                                        }}>
+                                        {t('managePlugin')}
+                                    </Button>
+                                ) : provider.logged_in ? (
                                     <Button
                                         variant="outline"
                                         size="sm"
@@ -546,6 +534,196 @@ function PluginCard({
     );
 }
 
+function PluginActionRow({
+    plugin,
+    onConfig,
+    onPage,
+}: {
+    plugin: PluginInfo;
+    onConfig: () => void;
+    onPage: (page: PluginUIPage) => void;
+}) {
+    const t = useTranslations('plugin');
+    const toggle = useTogglePlugin();
+    const remove = useRemovePlugin();
+    const refresh = useRefreshPluginModels();
+
+    return (
+        <div className="flex items-center gap-2">
+            {plugin.pages?.filter((page) => page.slot !== 'manage').map((page) => (
+                <Button key={page.id} variant="ghost" size="icon-sm" title={page.title || t('openPage')} onClick={() => onPage(page)}>
+                    <LayoutDashboard className="size-4" />
+                </Button>
+            ))}
+            {plugin.config_schema && (
+                <Button variant="ghost" size="icon-sm" title={t('config')} onClick={onConfig}>
+                    <Settings2 className="size-4" />
+                </Button>
+            )}
+            <Button variant="ghost" size="icon-sm" title={t('refresh')} onClick={() => refresh.mutate()} disabled={refresh.isPending}>
+                <RefreshCw className={`size-4 ${refresh.isPending ? 'animate-spin' : ''}`} />
+            </Button>
+            <Switch
+                checked={plugin.enabled}
+                onCheckedChange={(checked) => toggle.mutate({ id: plugin.id, enabled: checked })}
+                disabled={toggle.isPending}
+            />
+            <Button
+                variant="ghost"
+                size="icon-sm"
+                title={t('remove')}
+                className="text-destructive hover:text-destructive"
+                onClick={() => {
+                    if (window.confirm(t('removeConfirm', { name: plugin.display_name || plugin.id }))) remove.mutate(plugin.id);
+                }}
+                disabled={remove.isPending}
+            >
+                <Trash2 className="size-4" />
+            </Button>
+        </div>
+    );
+}
+
+function PluginManagePage({
+    plugin,
+    providers,
+    page,
+    onLogin,
+    onConfig,
+    onPage,
+}: {
+    plugin: PluginInfo;
+    providers: PluginProvider[];
+    page: PluginUIPage;
+    onLogin: (providerId: string) => void;
+    onConfig: () => void;
+    onPage: (page: PluginUIPage) => void;
+}) {
+    const t = useTranslations('plugin');
+    const locale = useLocale();
+    const { resolvedTheme } = useTheme();
+    const html = usePluginPage(plugin.id, page.id, true);
+    const iframeRef = useRef<HTMLIFrameElement>(null);
+    usePluginPageBridge(iframeRef, plugin.id, page.id);
+    const { mutate: logout } = useLogoutPlugin();
+    const { mutate: refreshModels } = useRefreshPluginModels();
+    const { mutate: saveConfig } = useSavePluginConfig();
+    const theme = resolvedTheme === 'dark' ? 'dark' : 'light';
+    const loweredLocale = locale.toLowerCase();
+    const normalizedLocale = loweredLocale.startsWith('zh-hant') || loweredLocale.startsWith('zh_hant')
+        ? 'zh-Hant'
+        : loweredLocale.startsWith('zh')
+            ? 'zh-Hans'
+            : 'en';
+    const snapshot = useMemo(() => ({ plugin, providers }), [plugin, providers]);
+
+    // 页面加载完成后发送 octopus:init；插件数据刷新后再推送 octopus:data
+    useEffect(() => {
+        iframeRef.current?.contentWindow?.postMessage(
+            { type: 'octopus:data', pluginId: plugin.id, pageId: page.id, theme, locale: normalizedLocale, data: snapshot },
+            '*'
+        );
+    }, [snapshot, plugin.id, page.id, theme, normalizedLocale]);
+
+    // 动作桥：校验消息来源后执行插件页面请求的白名单操作
+    useEffect(() => {
+        const handleMessage = (event: MessageEvent) => {
+            const iframe = iframeRef.current;
+            if (!iframe || event.source !== iframe.contentWindow) return;
+            const message = event.data as {
+                type?: string;
+                pluginId?: string;
+                pageId?: string;
+                action?: string;
+                providerId?: string;
+                key?: string;
+                value?: unknown;
+            } | null;
+            if (!message || typeof message !== 'object' || message.type !== 'octopus:action') return;
+            if (message.pluginId !== plugin.id || message.pageId !== page.id) return;
+            switch (message.action) {
+                case 'login': {
+                    if (!message.providerId || !providers.some((item) => item.provider_id === message.providerId)) return;
+                    onLogin(message.providerId);
+                    break;
+                }
+                case 'logout': {
+                    if (!message.providerId || !providers.some((item) => item.provider_id === message.providerId)) return;
+                    logout({ plugin_id: plugin.id, provider_id: message.providerId });
+                    break;
+                }
+                case 'refresh-models': {
+                    refreshModels();
+                    break;
+                }
+                case 'open-config': {
+                    onConfig();
+                    break;
+                }
+                case 'set-option': {
+                    const key = typeof message.key === 'string' ? message.key : '';
+                    const property = plugin.config_schema?.properties?.[key];
+                    if (!property) return;
+                    const value = message.value;
+                    if (property.type === 'boolean') {
+                        if (typeof value !== 'boolean') return;
+                    } else if (property.type === 'number' || property.type === 'integer') {
+                        if (typeof value !== 'number' || !Number.isFinite(value)) return;
+                    } else if (Array.isArray(property.enum)) {
+                        if (!property.enum.includes(value)) return;
+                    } else if (typeof value !== 'string') {
+                        return;
+                    }
+                    saveConfig({ plugin_id: plugin.id, options: { ...(plugin.options ?? {}), [key]: value } });
+                    break;
+                }
+                default:
+                    return;
+            }
+        };
+        window.addEventListener('message', handleMessage);
+        return () => window.removeEventListener('message', handleMessage);
+    }, [plugin, providers, page.id, onLogin, onConfig, logout, refreshModels, saveConfig]);
+
+    const postInit = () => {
+        iframeRef.current?.contentWindow?.postMessage(
+            { type: 'octopus:init', pluginId: plugin.id, pageId: page.id, theme, locale: normalizedLocale, data: snapshot },
+            '*'
+        );
+    };
+
+    return (
+        <>
+            <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border px-6 py-3">
+                <div className="min-w-0">
+                    <p className="break-all text-xs text-muted-foreground">{plugin.spec}</p>
+                    {plugin.error && <p className="mt-2 text-sm text-destructive">{plugin.error}</p>}
+                </div>
+                <PluginActionRow plugin={plugin} onConfig={onConfig} onPage={onPage} />
+            </div>
+            {html.isLoading && (
+                <div className="flex items-center gap-2 p-6 text-sm text-muted-foreground">
+                    <Loader2 className="size-4 animate-spin" />
+                    {t('loading')}
+                </div>
+            )}
+            {html.error && <p className="p-6 text-sm text-destructive">{html.error.message}</p>}
+            {html.data?.html && (
+                <div className="min-h-0 flex-1 p-4">
+                    <iframe
+                        ref={iframeRef}
+                        title={page.title || page.id}
+                        sandbox="allow-scripts allow-forms"
+                        srcDoc={html.data.html}
+                        className="h-[50vh] w-full rounded-2xl border border-border bg-background sm:h-full"
+                        onLoad={postInit}
+                    />
+                </div>
+            )}
+        </>
+    );
+}
+
 function PluginPageDialog({
     open,
     pluginID,
@@ -559,6 +737,8 @@ function PluginPageDialog({
 }) {
     const t = useTranslations('plugin');
     const html = usePluginPage(pluginID, page.id, open);
+    const iframeRef = useRef<HTMLIFrameElement>(null);
+    usePluginPageBridge(iframeRef, pluginID, page.id);
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className="sm:max-w-5xl rounded-3xl p-3">
@@ -575,6 +755,7 @@ function PluginPageDialog({
                 {html.error && <p className="p-6 text-sm text-destructive">{html.error.message}</p>}
                 {html.data?.html && (
                     <iframe
+                        ref={iframeRef}
                         title={page.title || page.id}
                         sandbox="allow-scripts allow-forms"
                         srcDoc={html.data.html}

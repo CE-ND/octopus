@@ -102,6 +102,7 @@
         "marketplaceInstalled": "已安装",
         "managePlugin": "管理",
         "manageDescription": "管理已安装插件的供应商、模型和登录状态。",
+        "managePageDescription": "该插件提供了自定义管理界面，运行在沙箱 iframe 中。",
         "expandDetails": "展开插件信息",
         "collapseDetails": "收起插件信息"
     },

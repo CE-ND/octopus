@@ -73,7 +73,25 @@ func init() {
 		AddRoute(
 			router.NewRoute("/logs", http.MethodGet).
 				Handle(pluginLogs),
+		).
+		AddRoute(
+			router.NewRoute("/call", http.MethodPost).
+				Handle(callPluginPage),
 		)
+}
+
+func callPluginPage(c *gin.Context) {
+	var request plugin.CallRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		resp.InvalidJSON(c)
+		return
+	}
+	result, err := plugin.Default().Call(c.Request.Context(), request)
+	if err != nil {
+		resp.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	resp.Success(c, result)
 }
 
 func listPlugins(c *gin.Context) {

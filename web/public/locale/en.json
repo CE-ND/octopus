@@ -102,6 +102,7 @@
         "marketplaceInstalled": "Installed",
         "managePlugin": "Manage",
         "manageDescription": "Manage this installed plugin's providers, models and sign-in state.",
+        "managePageDescription": "This plugin provides its own management interface, rendered in a sandboxed iframe.",
         "expandDetails": "Show plugin details",
         "collapseDetails": "Hide plugin details"
     },

@@ -145,10 +145,11 @@ function setAuthFromResult(providerID, result) {
 function makeClient() {
   return {
     auth: {
+      get: async (opts) => structuredClone(authFor(opts?.path?.id ?? opts?.id) ?? null),
       set: async (opts) => {
         const id = opts?.path?.id ?? opts?.id ?? opts?.providerID;
-        const body = opts?.body ?? opts?.auth;
-        if (id && body) saveAuth(id, body);
+        const body = opts && Object.hasOwn(opts, "body") ? opts.body : opts?.auth;
+        if (id && body !== undefined) saveAuth(id, body);
       },
     },
   };
@@ -184,6 +185,7 @@ async function importPluginFunctions(dir) {
   // the OpenCode 2.x wrapper, whose helper exports are not plugin functions.
   if (pkg.main) candidates.unshift(pkg.main);
   if (pkg.module) candidates.push(pkg.module);
+  if (pkg.octopus?.entry) candidates.unshift(pkg.octopus.entry);
   candidates.push("index.mjs", "index.js", "index.cjs");
 
   let entry = "";
@@ -221,7 +223,7 @@ async function loadPlugin(entry) {
     const hooksList = [];
     for (const fn of functions) {
       try {
-        const hooks = await fn({ client: makeClient(), magpie: makeMagpie(entry) });
+        const hooks = await fn({ client: makeClient(), magpie: makeMagpie(entry), octopus: { dataDir: path.join(DATA_DIR, "state", hash(id)) } });
         if (hooks && typeof hooks === "object") {
           loaded.functions.push(fn);
           hooksList.push(hooks);
@@ -367,6 +369,7 @@ function buildRoutes(provider, models) {
 }
 
 async function providerInfo(provider, refresh = false) {
+  if (provider.managed) return provider.info;
   const loggedIn = isLoggedIn(provider.providerID);
   if (!loggedIn) {
     // The plugin's config catalogue is a fallback for its own logic, not an
@@ -397,11 +400,57 @@ async function providerInfo(provider, refresh = false) {
 }
 
 async function allProviderInfo(refresh = false) {
+  await refreshManagedProviders(refresh);
   const result = [];
   for (const provider of allProviders()) {
     result.push(await providerInfo(provider, refresh));
   }
   return result.sort((a, b) => `${a.plugin_id}/${a.provider_id}`.localeCompare(`${b.plugin_id}/${b.provider_id}`));
+}
+
+// 自管型插件只暴露公开渠道描述；账号、凭据及其生命周期均由插件实现。
+function managedBridge(pluginID) {
+  const plugin = plugins.get(pluginID);
+  return (plugin?.hooks || []).map((hooks) => hooks.octopus).find((bridge) => typeof bridge?.providers === "function");
+}
+
+async function refreshManagedProviders(refresh = false) {
+  for (const [pluginID, plugin] of plugins) {
+    const bridge = managedBridge(pluginID);
+    if (!bridge) continue;
+    const descriptors = await bridge.providers({ refresh });
+    if (!Array.isArray(descriptors)) throw new Error("plugin providers must return an array");
+    const seen = new Set();
+    for (const descriptor of descriptors) {
+      if (!descriptor?.provider_id || !Array.isArray(descriptor.models) || !Array.isArray(descriptor.routes)) {
+        throw new Error("plugin returned an invalid provider descriptor");
+      }
+      const key = providerKey(pluginID, descriptor.provider_id);
+      if (seen.has(key)) throw new Error("plugin provider ID must be unique");
+      seen.add(key);
+      const info = { ...descriptor, plugin_id: pluginID, plugin_managed: true };
+      providers.set(key, {
+        pluginID, providerID: info.provider_id, name: info.name,
+        entry: plugin.entry, hooks: {}, managed: bridge, info,
+        modelCache: { models: info.models, routes: info.routes },
+      });
+    }
+    for (const [key, provider] of providers) {
+      if (provider.pluginID === pluginID && provider.managed && !seen.has(key)) providers.delete(key);
+    }
+  }
+}
+
+function providerLoggedIn(provider) {
+  return provider.managed ? provider.info.logged_in === true : isLoggedIn(provider.providerID);
+}
+
+async function callPlugin(body) {
+  if (typeof body.method !== "string" || !/^[a-z][a-z0-9._-]{0,63}$/.test(body.method)) throw new Error("invalid plugin method");
+  const bridge = managedBridge(body.plugin_id);
+  if (typeof bridge?.call !== "function") throw new Error("plugin does not support page calls");
+  const result = await bridge.call({ method: body.method, params: body.params || {} });
+  return { data: result?.data ?? null, refresh: result?.refresh === true };
 }
 
 function pluginSummaries() {
@@ -518,6 +567,7 @@ function authMethodsFor(provider) {
 async function handleAuthStart(body) {
   const provider = getProvider(body.plugin_id, body.provider_id);
   if (!provider) throw new Error("provider not found");
+  if (provider.managed) throw new Error("manage authentication in the plugin page");
   const methods = provider.hooks.auth?.methods || [];
   const method = methods[Number(body.method) || 0];
   if (!method) throw new Error("sign-in method not found");
@@ -581,8 +631,9 @@ async function handleDataPlane(req, res, segments) {
   // A route id is globally unique across providers. If it is not in a cache
   // yet (the first request after a restart), refresh every provider once.
   if (!findRoute(routeID)) {
+    await refreshManagedProviders(false);
     for (const provider of providers.values()) {
-      if (!provider.modelCache) await providerModels(provider, false);
+      if (!provider.managed && !provider.modelCache) await providerModels(provider, false);
     }
   }
   const found = findRoute(routeID);
@@ -592,7 +643,7 @@ async function handleDataPlane(req, res, segments) {
   }
   const provider = found.provider;
   const route = found.route;
-  if (!isLoggedIn(provider.providerID)) {
+  if (!providerLoggedIn(provider)) {
     json(res, 401, { error: { message: `${provider.name} is not signed in` } });
     return;
   }
@@ -629,7 +680,9 @@ async function handleDataPlane(req, res, segments) {
     body: body.length ? body : undefined,
   });
   try {
-    const fetchFn = await loaderFor(provider);
+    const fetchFn = provider.managed
+      ? (request) => provider.managed.fetch({ provider_id: provider.providerID, route_id: route.id, request })
+      : await loaderFor(provider);
     if (!fetchFn) throw new Error("plugin has no fetch adapter");
     const response = await fetchFn(request);
     if (!response || typeof response.status !== "number") throw new Error("plugin returned no response");
@@ -668,11 +721,12 @@ const server = http.createServer(async (req, res) => {
           plugin_id: p.pluginID,
           provider_id: p.providerID,
           name: p.name,
-          logged_in: isLoggedIn(p.providerID),
-          account: authLabel(p.providerID),
+          logged_in: providerLoggedIn(p),
+          account: p.managed ? p.info.account : authLabel(p.providerID),
         })),
       });
     }
+    if (pathname === "/call" && req.method === "POST") return json(res, 200, await callPlugin(await parseJSONBody(req)));
     if (pathname === "/providers" && req.method === "GET") {
       const refresh = url.searchParams.get("refresh") === "1";
       const list = await allProviderInfo(refresh);
@@ -692,8 +746,9 @@ const server = http.createServer(async (req, res) => {
     }
     if (pathname === "/auth/logout" && req.method === "POST") {
       const body = await parseJSONBody(req);
-      clearAuth(body.provider_id);
       const provider = getProvider(body.plugin_id, body.provider_id);
+      if (provider?.managed) return json(res, 400, { error: { message: "manage authentication in the plugin page" } });
+      clearAuth(body.provider_id);
       if (provider) provider.modelCache = null;
       return json(res, 200, { ok: true });
     }
@@ -702,7 +757,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (pathname.startsWith("/p/")) {
       const segments = pathname.split("/").filter(Boolean);
-      if (segments.length >= 5) return await handleDataPlane(req, res, segments);
+      if (segments.length >= 4) return await handleDataPlane(req, res, segments);
     }
     return json(res, 404, { error: { message: "not found" } });
   } catch (err) {

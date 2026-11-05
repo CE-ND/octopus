@@ -102,6 +102,7 @@
         "marketplaceInstalled": "已安裝",
         "managePlugin": "管理",
         "manageDescription": "管理已安裝外掛的供應商、模型和登入狀態。",
+        "managePageDescription": "此外掛提供了自訂管理介面，執行於沙箱 iframe 中。",
         "expandDetails": "展開外掛資訊",
         "collapseDetails": "收起外掛資訊"
     },
