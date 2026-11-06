@@ -5,6 +5,7 @@ const path = require('path');
 const net = require('net');
 const crypto = require('crypto');
 const os = require('os');
+const { createDesktopUpdater, updateAvailability, isTrustedUpdateSender, registerUpdateIPC } = require('./updater');
 
 let backendProcess = null;
 let backendBaseUrl = null;
@@ -15,6 +16,7 @@ let stopBackendPromise = null;
 let backendStartError = null;
 let tray = null;
 let hasShownBackgroundNotice = false;
+let desktopUpdater = null;
 
 const isWindows = process.platform === 'win32';
 const appId = 'com.hureru.octopus.desktop';
@@ -212,6 +214,7 @@ async function requestBackendShutdown() {
   try {
     await fetch(`${backendBaseUrl}/api/v1/desktop/shutdown`, {
       method: 'POST',
+      signal: AbortSignal.timeout(5000),
       headers: {
         'X-Octopus-Desktop-Token': shutdownToken,
       },
@@ -223,7 +226,7 @@ async function requestBackendShutdown() {
 
 function waitForBackendExit(timeoutMs = 8000) {
   return new Promise((resolve) => {
-    if (!backendProcess || backendProcess.exitCode !== null) {
+    if (!backendProcess || backendProcess.exitCode !== null || backendProcess.signalCode !== null) {
       resolve(true);
       return;
     }
@@ -259,6 +262,38 @@ async function stopBackend() {
 }
 
 let mainWindow = null;
+
+function initializeUpdater() {
+  const unavailable = updateAvailability({
+    platform: process.platform, packaged: app.isPackaged,
+    executable: process.execPath, resources: process.resourcesPath,
+  });
+  desktopUpdater = createDesktopUpdater({
+    updater: unavailable ? null : require('electron-updater').autoUpdater,
+    unavailable,
+    currentVersion: app.getVersion(),
+    installDirectory: path.dirname(process.execPath),
+    publishState: state => {
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('octopus-update:state', state);
+    },
+    beforeInstall: async () => {
+      await stopBackend();
+      if (backendProcess && backendProcess.exitCode === null && backendProcess.signalCode === null) {
+        throw new Error('The backend is still running; the update was not started');
+      }
+    },
+    installFailed: async () => {
+      shuttingDown = false;
+      stopBackendPromise = null;
+      if (!backendProcess || backendProcess.exitCode !== null || backendProcess.signalCode !== null) await startBackend();
+    },
+  });
+  registerUpdateIPC(ipcMain, desktopUpdater, event => isTrustedUpdateSender(event, mainWindow, backendBaseUrl));
+  if (!unavailable) {
+    const timer = setTimeout(() => { if (!shuttingDown) void desktopUpdater.check(); }, 10000);
+    timer.unref();
+  }
+}
 
 function showMainWindow() {
   if (!mainWindow || mainWindow.isDestroyed()) {
@@ -320,7 +355,7 @@ async function createWindow() {
     mainWindow.show();
   });
 
-  // 发布页和安装包链接交给系统浏览器，下载过程不占用管理窗口。
+  // 发布说明和手动下载链接使用系统浏览器；应用内更新走受限的 IPC。
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     try {
       const target = new URL(url);
@@ -408,6 +443,7 @@ if (!hasSingleInstanceLock) {
   app.whenReady().then(async () => {
     try {
       await startBackend();
+      initializeUpdater();
       await createWindow();
       createTray();
     } catch (err) {

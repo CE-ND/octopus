@@ -2,6 +2,7 @@
 
 *.go text eol=lf
 *.js text eol=lf
+*.cjs text eol=lf
 *.jsx text eol=lf
 *.ts text eol=lf
 *.tsx text eol=lf
@@ -14,6 +15,7 @@
 *.html text eol=lf
 *.sh text eol=lf
 *.sql text eol=lf
+*.patch text eol=lf
 
 *.bat text eol=crlf
 *.cmd text eol=crlf

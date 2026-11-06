@@ -597,6 +597,43 @@
             "rateLimited": "GitHub 查詢次數已達上限，請稍後重試。",
             "prerelease": "預發布",
             "stableRelease": "正式版",
+            "desktopUpdate": {
+                "download": "下載更新",
+                "install": "重新啟動並更新",
+                "retry": "重試",
+                "cancel": "取消下載",
+                "connecting": "正在連線下載服務…",
+                "verifying": "正在驗證更新套件…",
+                "downloadProgress": "更新下載進度",
+                "manualDownloads": "手動下載安裝程式 / 其他平台",
+                "installHint": "下載時可繼續使用；更新會沿用安裝位置，保留帳號、設定和外掛資料。",
+                "bridgeError": "無法連線桌面更新服務，請重新開啟設定或重新啟動軟體。",
+                "phase": {
+                    "idle": "可在軟體內檢查並下載更新",
+                    "checking": "正在檢查可用更新…",
+                    "available": "發現新版本 {version}",
+                    "up-to-date": "目前已是最新正式版",
+                    "downloading": "正在下載 {version}…",
+                    "cancelling": "正在取消下載…",
+                    "downloaded": "{version} 已下載並通過驗證",
+                    "installing": "正在關閉服務並安裝更新…",
+                    "error": "更新未完成",
+                    "unsupported": "目前環境使用手動更新"
+                },
+                "errors": {
+                    "check": "檢查更新失敗，請檢查網路連線後重試。",
+                    "download": "更新套件下載失敗，請重試。目前版本仍可繼續使用。",
+                    "integrity": "更新套件驗證失敗，未啟動安裝，請重新下載。",
+                    "manifest": "發行版本暫未提供完整的應用程式內更新資訊，請稍後重試或使用手動安裝程式。",
+                    "install": "未能啟動更新，請重試。如系統要求管理員權限，請完成權限確認。"
+                },
+                "unavailable": {
+                    "development": "開發環境不執行安裝更新，請使用已安裝的正式版。",
+                    "platform": "此平台暫未啟用應用程式內更新，請使用下方安裝程式。",
+                    "not-installed": "目前執行的是未安裝版本，請先使用安裝程式完成安裝。",
+                    "missing-config": "目前版本缺少更新設定，請安裝新版後使用應用程式內更新。"
+                }
+            },
             "updateStatus": {
                 "update_available": "發現新版本 {version}，可下載安裝包更新。",
                 "up_to_date": "目前已是最新正式版。",

@@ -1,4 +1,19 @@
-const { ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer } = require('electron');
+
+contextBridge.exposeInMainWorld('octopusDesktop', {
+  updater: {
+    getState: () => ipcRenderer.invoke('octopus-update:state'),
+    check: () => ipcRenderer.invoke('octopus-update:check'),
+    download: () => ipcRenderer.invoke('octopus-update:download'),
+    cancel: () => ipcRenderer.invoke('octopus-update:cancel'),
+    install: () => ipcRenderer.invoke('octopus-update:install'),
+    onState: callback => {
+      const listener = (_event, state) => callback(state);
+      ipcRenderer.on('octopus-update:state', listener);
+      return () => ipcRenderer.removeListener('octopus-update:state', listener);
+    },
+  },
+});
 
 const styleId = 'octopus-window-controls-style';
 const controlsId = 'octopus-window-controls';

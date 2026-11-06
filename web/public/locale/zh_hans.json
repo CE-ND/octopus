@@ -597,6 +597,43 @@
             "rateLimited": "GitHub 查询次数已达上限，请稍后重试。",
             "prerelease": "预发布",
             "stableRelease": "正式版",
+            "desktopUpdate": {
+                "download": "下载更新",
+                "install": "重启并更新",
+                "retry": "重试",
+                "cancel": "取消下载",
+                "connecting": "正在连接下载服务…",
+                "verifying": "正在校验更新包…",
+                "downloadProgress": "更新下载进度",
+                "manualDownloads": "手动下载安装包 / 其他平台",
+                "installHint": "下载时可继续使用；更新会沿用安装位置，保留账号、配置和插件数据。",
+                "bridgeError": "无法连接桌面更新服务，请重新打开设置或重启软件。",
+                "phase": {
+                    "idle": "可在软件内检查并下载更新",
+                    "checking": "正在检查可用更新…",
+                    "available": "发现新版本 {version}",
+                    "up-to-date": "当前已是最新正式版",
+                    "downloading": "正在下载 {version}…",
+                    "cancelling": "正在取消下载…",
+                    "downloaded": "{version} 已下载并通过校验",
+                    "installing": "正在关闭服务并安装更新…",
+                    "error": "更新未完成",
+                    "unsupported": "当前环境使用手动更新"
+                },
+                "errors": {
+                    "check": "检查更新失败，请检查网络连接后重试。",
+                    "download": "更新包下载失败，请重试。当前版本仍可继续使用。",
+                    "integrity": "更新包校验失败，未启动安装，请重新下载。",
+                    "manifest": "发布版本暂未提供完整的应用内更新信息，请稍后重试或使用手动安装包。",
+                    "install": "未能启动更新，请重试。如系统要求管理员权限，请完成权限确认。"
+                },
+                "unavailable": {
+                    "development": "开发环境不执行安装更新，请使用已安装的正式版。",
+                    "platform": "此平台暂未启用应用内更新，请使用下方安装包。",
+                    "not-installed": "当前运行的是未安装版本，请先使用安装包完成安装。",
+                    "missing-config": "当前版本缺少更新配置，请安装新版后使用应用内更新。"
+                }
+            },
             "updateStatus": {
                 "update_available": "发现新版本 {version}，可下载安装包更新。",
                 "up_to_date": "当前已是最新正式版。",

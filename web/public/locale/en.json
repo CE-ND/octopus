@@ -597,6 +597,43 @@
             "rateLimited": "GitHub's request limit was reached. Please try again later.",
             "prerelease": "Pre-release",
             "stableRelease": "Stable",
+            "desktopUpdate": {
+                "download": "Download update",
+                "install": "Restart and update",
+                "retry": "Retry",
+                "cancel": "Cancel download",
+                "connecting": "Connecting to the download service…",
+                "verifying": "Verifying the update…",
+                "downloadProgress": "Update download progress",
+                "manualDownloads": "Manual installers / other platforms",
+                "installHint": "Keep working while downloading. Updating preserves the installation location, accounts, settings, and plugin data.",
+                "bridgeError": "Unable to reach the desktop updater. Reopen settings or restart the app.",
+                "phase": {
+                    "idle": "Check and download updates within the app",
+                    "checking": "Checking for updates…",
+                    "available": "Version {version} is available",
+                    "up-to-date": "You are on the latest stable release",
+                    "downloading": "Downloading {version}…",
+                    "cancelling": "Cancelling the download…",
+                    "downloaded": "{version} is downloaded and verified",
+                    "installing": "Stopping the service and installing the update…",
+                    "error": "Update not completed",
+                    "unsupported": "Use a manual installer in this environment"
+                },
+                "errors": {
+                    "check": "Unable to check for updates. Check your connection and retry.",
+                    "download": "Unable to download the update. Retry when ready; the current version is still usable.",
+                    "integrity": "Update verification failed. Installation was not started. Download it again.",
+                    "manifest": "This release does not yet include complete in-app update information. Retry later or use a manual installer.",
+                    "install": "Unable to start the update. Retry and approve the system administrator prompt if requested."
+                },
+                "unavailable": {
+                    "development": "Development builds do not install updates. Use an installed release.",
+                    "platform": "In-app updates are not enabled on this platform yet. Use an installer below.",
+                    "not-installed": "This is an unpacked app. Install it with a setup package first.",
+                    "missing-config": "This build is missing update configuration. Install a newer release to enable in-app updates."
+                }
+            },
             "updateStatus": {
                 "update_available": "Version {version} is available. Download an installer to update.",
                 "up_to_date": "You are on the latest stable release.",

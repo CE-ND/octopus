@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -233,6 +234,15 @@ func TestDshProtocolAddressesAndKeyValidation(t *testing.T) {
 		if dshText(dshGet(provider, "baseURL")) != expected {
 			t.Fatal("wrong API prefix")
 		}
+		item, err := dshModel(provider, prepared.DSH.ModelName)
+		if err != nil {
+			t.Fatal(err)
+		}
+		input := dshGet(item, "input")
+		var modalities []string
+		if input == nil || input.Decode(&modalities) != nil || !slices.Equal(modalities, []string{"text", "image"}) {
+			t.Fatalf("%s model must allow text and image input, got %v", api, modalities)
+		}
 	}
 	key, _ := APIKeyGet(keyID, context.Background())
 	for _, scenario := range []string{"disabled", "expired", "restricted"} {
@@ -252,6 +262,56 @@ func TestDshProtocolAddressesAndKeyValidation(t *testing.T) {
 		if err == nil {
 			t.Fatalf("accepted %s key", scenario)
 		}
+	}
+}
+
+func TestDshAutoConfigBackfillsModelInputAndPreservesExplicitCapabilities(t *testing.T) {
+	existing := strings.Replace(dshTestProfile, "- id: existing", "- id: public-group-alias", 1)
+	for _, tt := range []struct {
+		name    string
+		profile string
+		input   []string
+	}{
+		{"missing", strings.Replace(existing, "            input: [text, image]\n", "", 1), []string{"text", "image"}},
+		{"null", strings.Replace(existing, "input: [text, image]", "input: null", 1), []string{"text", "image"}},
+		{"explicit-image", existing, []string{"text", "image"}},
+		{"explicit-text-only", strings.Replace(existing, "input: [text, image]", "input: [text]", 1), []string{"text"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			paths := dshTestHome(t)
+			if err := os.WriteFile(paths.profile, []byte(tt.profile), 0600); err != nil {
+				t.Fatal(err)
+			}
+			keyID, groupID := seedDshGroup(t)
+			prepared := dshTestPrepare(t, keyID, groupID, "")
+			again, err := DshAutoConfigPrepare(model.AgentAutoConfigRequest{Agent: dshAgentID, APIKeyID: keyID, DSH: &model.DshAutoConfigOptions{ModelGroupID: groupID}, CurrentContent: &prepared.Content}, context.Background())
+			if err != nil || again.Content != prepared.Content {
+				t.Fatalf("model input changed on repeated preparation: %v", err)
+			}
+			if err := DshConfigSave(dshTestSaveRequest(t, prepared, keyID), context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			p, _, _, err := loadDshProfile(paths, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			provider, err := p.provider(false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			item, err := dshModel(provider, prepared.DSH.ModelName)
+			if err != nil {
+				t.Fatal(err)
+			}
+			input := dshGet(item, "input")
+			var modalities []string
+			if input == nil || input.Decode(&modalities) != nil || !slices.Equal(modalities, tt.input) {
+				t.Fatalf("saved model input = %v, want %v", modalities, tt.input)
+			}
+			if contextWindow := dshGet(item, "contextWindow"); contextWindow == nil || contextWindow.Value != "200000" || !dshSupportsEffort(item, "high") {
+				t.Fatal("auto-config changed existing model capabilities")
+			}
+		})
 	}
 }
 

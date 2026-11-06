@@ -28,6 +28,4 @@ if (fs.existsSync(npmLockfile)) {
   });
 }
 
-writeVersion(path.join(rootDir, 'installer-ui', 'electron-builder.json'), (json) => {
-  json.extraMetadata.version = version;
-});
+// Native installer file resources and embedded metadata read package.json when built.

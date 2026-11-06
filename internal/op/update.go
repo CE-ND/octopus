@@ -283,6 +283,22 @@ func exportReleaseVersion(repo releaseRepository, release githubRelease) model.R
 		}
 		result.Assets = append(result.Assets, model.ReleaseAsset{Name: asset.Name, Size: asset.Size, DownloadURL: asset.DownloadURL, Platform: platform})
 	}
+	// 同一版本同时发布原生安装器和 NSIS 更新包，手动下载只展示原生安装器。
+	for _, asset := range result.Assets {
+		name := strings.ReplaceAll(strings.ToLower(asset.Name), " ", ".")
+		if strings.HasPrefix(name, "octopus.custom.setup.") && strings.HasSuffix(name, ".exe") {
+			visible := result.Assets[:0]
+			for _, item := range result.Assets {
+				name := strings.ToLower(item.Name)
+				if strings.HasPrefix(name, "octopus-") && strings.Contains(name, "-windows-") && strings.HasSuffix(name, "-setup.exe") {
+					continue
+				}
+				visible = append(visible, item)
+			}
+			result.Assets = visible
+			break
+		}
+	}
 	return result
 }
 

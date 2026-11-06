@@ -1,2 +1,4 @@
 allowBuilds:
   electron: true
+patchedDependencies:
+  app-builder-lib@25.1.8: patches/app-builder-lib@25.1.8.patch

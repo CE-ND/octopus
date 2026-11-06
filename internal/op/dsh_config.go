@@ -398,6 +398,15 @@ func DshAutoConfigPrepare(req model.AgentAutoConfigRequest, ctx context.Context)
 		dshSet(item, "name", dshString(name))
 		models.Content = append(models.Content, item)
 	}
+	// DSH 根据 input 启用图片输入；补齐旧配置的缺省值，同时保留手动声明的能力。
+	if input := dshGet(item, "input"); input == nil || input.Tag == "!!null" {
+		dshSet(item, "input", &yaml.Node{
+			Kind:    yaml.SequenceNode,
+			Tag:     "!!seq",
+			Style:   yaml.FlowStyle,
+			Content: []*yaml.Node{dshString("text"), dshString("image")},
+		})
+	}
 	defaults, err := p.config("agent-default-model", true)
 	if err != nil {
 		return result, err

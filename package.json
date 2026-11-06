@@ -1,15 +1,20 @@
 {
   "name": "octopus-desktop",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "private": true,
   "description": "Desktop wrapper for Octopus",
   "main": "desktop/main.js",
   "scripts": {
+    "desktop:test": "node --test scripts/tests/*.test.cjs",
+    "desktop:test:bridge": "node scripts/test-desktop-update-bridge.cjs",
     "desktop:prepare": "node scripts/desktop-prepare.js",
     "desktop:dev": "pnpm desktop:prepare && electron .",
     "desktop:pack": "pnpm desktop:prepare && electron-builder --dir",
     "desktop:dist": "pnpm desktop:prepare && electron-builder",
-    "desktop:dist:custom": "node scripts/desktop-custom-installer.js"
+    "desktop:dist:custom": "node scripts/desktop-custom-installer.js",
+    "installer:preview": "node scripts/build-native-installer.cjs --preview",
+    "installer:toolchain": "node scripts/installer-toolchain.cjs",
+    "installer:test": "node scripts/test-native-installer.cjs"
   },
   "devDependencies": {
     "electron": "^33.2.1",
@@ -19,6 +24,12 @@
     "appId": "com.hureru.octopus.desktop",
     "productName": "Octopus",
     "asar": true,
+    "publish": {
+      "provider": "github",
+      "owner": "CE-ND",
+      "repo": "octopus",
+      "releaseType": "release"
+    },
     "directories": {
       "output": "dist/desktop"
     },
@@ -44,6 +55,8 @@
       ]
     },
     "nsis": {
+      "guid": "a4a87c40-2d93-5d84-a543-303b5310a700",
+      "include": "installer-native/nsis/installer.nsh",
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
@@ -66,5 +79,8 @@
         "AppImage"
       ]
     }
+  },
+  "dependencies": {
+    "electron-updater": "6.8.11"
   }
 }

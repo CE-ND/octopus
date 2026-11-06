@@ -87,11 +87,47 @@ Create the custom Octopus setup UI:
 pnpm desktop:dist:custom
 ```
 
-This first builds the normal NSIS installer as a silent payload, then packages a
-branded Electron setup shell around it. The user-facing artifact is written to
-`dist/installer-ui/Octopus Custom Setup <version>.exe`. It presents Octopus-specific
-pages for install scope, install path, pre-install checks, and progress while the
-payload handles the actual Windows installation in the background.
+This builds a native C++ / Win32 setup window with Direct2D / DirectWrite and an
+embedded NSIS installation engine. The window loads its background and controls
+before extracting the installation payload. It does not package another Electron
+runtime for setup. The offline, single-file installer is written to
+`dist/installer-ui/Octopus Custom Setup <version>.exe`.
+
+The pinned LLVM-MinGW compiler is downloaded into `build/toolchains` and checked
+against its SHA-256 on first use. It does not require a system-wide compiler
+installation. Set `OCTOPUS_LLVM_MINGW` to use an existing LLVM-MinGW installation.
+Install desktop dependencies with **pnpm** so the checked-in NSIS directory
+reading fix is applied; the custom packaging script verifies this patch.
+
+Build a preview which cannot install or launch Octopus:
+
+```powershell
+pnpm installer:preview
+& "build/native-installer/preview/Octopus Setup Preview.exe"
+```
+
+Run the installation tests using a separate application ID, executable name and
+directory, including paths containing Chinese characters and spaces:
+
+```powershell
+pnpm installer:test
+```
+
+After a complete build, verify its payload metadata, native self-tests and first
+paint timings:
+
+```powershell
+node scripts/verify-native-installer.cjs
+```
+
+To rebuild setup using already prepared desktop assets, use
+`node scripts/desktop-custom-installer.js --skip-prepare`. The cached backend
+must match the package version. Setup logs are stored under
+`%LOCALAPPDATA%/Octopus/Setup/Logs`; user data remains under `%USERPROFILE%/.octopus`.
+
+The background is a checked-in generated PNG. Builds do not call an image service
+or require image API credentials. See `installer-native/README.md` for the native
+architecture and preview options.
 
 ### Windows symlink permission error
 
@@ -108,6 +144,43 @@ the failed cache and retry:
 Remove-Item "$env:LOCALAPPDATA\electron-builder\Cache\winCodeSign" -Recurse -Force
 pnpm desktop:dist
 ```
+
+### Windows in-app updates
+
+Installed Windows builds use `electron-updater` to check the GitHub release feed
+configured in `package.json` under `build.publish`. Settings shows download
+progress, cancellation, retry, and **Restart and update**. Downloads are checked
+against the release manifest's SHA-512 before installation becomes available.
+Downloading does not stop the app, and an ordinary exit does not install an update.
+
+When the user chooses to update, Electron stops the Go backend first and starts
+the NSIS engine with `--updated /S --force-run`. The installation directory comes
+from the running executable. The stable NSIS GUID preserves the existing install
+registration, and NSIS removes obsolete program files as part of the upgrade.
+Accounts, settings and plugin data stay in `%USERPROFILE%/.octopus`, outside the
+installation directory. Administrator approval may still be required for an
+all-users installation.
+
+Windows releases must contain the native setup, the standard NSIS installer,
+its `.blockmap`, and the channel manifest (`latest.yml` for stable releases).
+`scripts/collect-release-assets.cjs` checks the manifest's version, file name,
+size and SHA-512 before staging an explicit list of publishable artifacts.
+The release workflow repeats this validation after collecting the Windows and
+macOS builds. Build logs and effective configuration files are not published.
+
+Versions released before this updater was added need one manual installation of
+a new build. Development and unpacked builds do not install updates. macOS
+currently uses ad-hoc signing and manual DMG updates; reliable Squirrel updates
+require a suitable signing and release setup. Changing `OCTOPUS_GITHUB_REPO` for
+the backend does not redirect executable updates; forks must set `build.publish`.
+
+Run the desktop update tests with `pnpm desktop:test`. `pnpm installer:test`
+also verifies silent cross-version updates in a separate test installation,
+including a path containing Chinese characters and spaces.
+`pnpm desktop:test:bridge` checks the real sandboxed Electron preload and IPC
+without installing anything. Custom installer builds also run
+`scripts/verify-desktop-update.cjs` to verify the packaged update feed, load the
+updater from the built ASAR, and validate the NSIS manifest and checksum.
 
 ## Useful Environment Variables
 

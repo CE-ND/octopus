@@ -76,6 +76,9 @@ func TestReleaseFetchLatestHistoryAssetsAndCache(t *testing.T) {
 			_, _ = w.Write([]byte(`{"id":16,"tag_name":"v0.1.6","published_at":"2026-10-26T08:42:14Z","assets":[
 				{"name":"Octopus.Custom.Setup.0.1.6.exe","size":173360707,"state":"uploaded","browser_download_url":"https://github.com/CE-ND/octopus/releases/download/v0.1.6/setup.exe"},
 				{"name":"setup.exe.sha256","state":"uploaded","browser_download_url":"https://github.com/CE-ND/octopus/releases/download/v0.1.6/setup.exe.sha256"},
+				{"name":"Octopus-0.1.6-windows-x64-setup.exe","size":90000000,"state":"uploaded","browser_download_url":"https://github.com/CE-ND/octopus/releases/download/v0.1.6/Octopus-0.1.6-windows-x64-setup.exe"},
+				{"name":"latest.yml","state":"uploaded","browser_download_url":"https://github.com/CE-ND/octopus/releases/download/v0.1.6/latest.yml"},
+				{"name":"Octopus-0.1.6-windows-x64-setup.exe.blockmap","state":"uploaded","browser_download_url":"https://github.com/CE-ND/octopus/releases/download/v0.1.6/Octopus-0.1.6-windows-x64-setup.exe.blockmap"},
 				{"name":"unfinished.dmg","state":"starter","browser_download_url":"https://github.com/CE-ND/octopus/releases/download/v0.1.6/unfinished.dmg"},
 				{"name":"foreign.exe","state":"uploaded","browser_download_url":"https://example.com/foreign.exe"},
 				{"name":"other-repo.exe","state":"uploaded","browser_download_url":"https://github.com/other/repo/releases/download/v1/setup.exe"}]}`))

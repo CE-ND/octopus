@@ -106,6 +106,11 @@ jobs:
       - name: Install desktop dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Verify desktop update logic
+        run: |
+          pnpm desktop:test
+          pnpm desktop:test:bridge
+
       - name: Sync version from tag
         env:
           RELEASE_VERSION: ${{ github.ref_name }}
@@ -117,11 +122,21 @@ jobs:
           OCTOPUS_DESKTOP_GOARCH: amd64
         run: pnpm desktop:dist:custom
 
+      - name: Verify native installer and isolated installation
+        run: |
+          pnpm installer:test
+          node scripts/verify-native-installer.cjs
+
+      - name: Validate and collect Windows update assets
+        env:
+          RELEASE_VERSION: ${{ github.ref_name }}
+        run: node scripts/collect-release-assets.cjs windows
+
       - name: Upload Windows build artifact
         uses: actions/upload-artifact@v4
         with:
           name: desktop-windows-x64
-          path: dist/installer-ui/*.exe
+          path: dist/release-windows/*
           if-no-files-found: error
           retention-days: 7
 
@@ -137,6 +152,19 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: '12.14.0'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install release validation dependencies
+        run: pnpm install --prod --frozen-lockfile --ignore-scripts
+
       - name: Collect desktop installers
         uses: actions/download-artifact@v4
         with:
@@ -144,22 +172,10 @@ jobs:
           path: dist/release
           merge-multiple: true
 
-      - name: Verify all three installers are present
-        run: |
-          node <<'NODE'
-          const fs = require('node:fs');
-          const files = fs.readdirSync('dist/release');
-          const windows = files.filter(file => file.endsWith('.exe'));
-          const mac = files.filter(file => file.endsWith('.dmg'));
-          if (windows.length !== 1 || mac.length !== 2 || !mac.some(file => file.includes('-arm64.')) || !mac.some(file => file.includes('-x64.'))) {
-            throw new Error('Expected one Windows installer and separate Apple Silicon / Intel DMGs');
-          }
-          for (const file of [...windows, ...mac]) {
-            const size = fs.statSync(`dist/release/${file}`).size;
-            if (size < 1000000) throw new Error(`Installer is unexpectedly small: ${file}`);
-            console.log(`${file}: ${size} bytes`);
-          }
-          NODE
+      - name: Verify installers and update manifest checksums
+        env:
+          RELEASE_VERSION: ${{ github.ref_name }}
+        run: node scripts/collect-release-assets.cjs all
 
       - name: Select release notes
         id: notes
@@ -188,8 +204,10 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/release/*.exe
-            dist/release/*.dmg
+            dist/publish/*.exe
+            dist/publish/*.dmg
+            dist/publish/*.yml
+            dist/publish/*.blockmap
           fail_on_unmatched_files: true
           tag_name: ${{ github.ref_name }}
           body_path: ${{ steps.notes.outputs.path }}

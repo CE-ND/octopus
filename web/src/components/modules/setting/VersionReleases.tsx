@@ -5,6 +5,8 @@ import { Download, ExternalLink, History, Loader2, RefreshCw } from 'lucide-reac
 import { useCheckForUpdates, useReleaseInfo, type ReleaseAsset, type ReleaseVersion } from '@/api/endpoints/update';
 import { Button } from '@/components/ui/button';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
+import { useDesktopUpdate } from '@/hooks/use-desktop-update';
+import { DesktopUpdate } from './DesktopUpdate';
 
 function ReleaseDownloads({ assets }: { assets: ReleaseAsset[] }) {
     const t = useTranslations('setting.info');
@@ -62,9 +64,12 @@ export function VersionReleases({ releasesURL }: { releasesURL: string }) {
     const format = useFormatter();
     const releases = useReleaseInfo();
     const check = useCheckForUpdates();
+    const desktop = useDesktopUpdate();
+    const inAppUpdate = desktop.state?.supported === true;
     const data = releases.data;
     const latest = data?.latest;
-    const checking = releases.isFetching || check.isPending;
+    const checking = releases.isFetching || check.isPending || desktop.state?.phase === 'checking';
+    const updating = desktop.state?.phase === 'downloading' || desktop.state?.phase === 'cancelling' || desktop.state?.phase === 'installing';
     const error = check.error || releases.error;
     const rateLimited = !!error && 'errorCode' in error && error.errorCode === 'update.github_rate_limited';
 
@@ -78,7 +83,7 @@ export function VersionReleases({ releasesURL }: { releasesURL: string }) {
     return (
         <div className="space-y-4 border-t border-border pt-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
-                <Button onClick={() => check.mutate()} disabled={checking} size="sm" className="rounded-xl">
+                <Button onClick={() => { check.mutate(); if (inAppUpdate) void desktop.run('check'); }} disabled={checking || updating} size="sm" className="rounded-xl">
                     {checking ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
                     {checking ? t('checking') : t('checkUpdates')}
                 </Button>
@@ -89,18 +94,23 @@ export function VersionReleases({ releasesURL }: { releasesURL: string }) {
 
             {error && <p role="alert" className="text-xs text-destructive">{rateLimited ? t('rateLimited') : t('checkFailed')}</p>}
 
+            <DesktopUpdate state={desktop.state} bridgeError={desktop.bridgeError} onAction={desktop.run} />
+
             {data && (
                 <div aria-live="polite" className="space-y-3">
-                    <p className={data.status === 'update_available' ? 'text-sm font-medium text-primary' : 'text-sm text-muted-foreground'}>
+                    {!inAppUpdate && <p className={data.status === 'update_available' ? 'text-sm font-medium text-primary' : 'text-sm text-muted-foreground'}>
                         {t(`updateStatus.${data.status}`, { version: latest?.version || '' })}
-                    </p>
+                    </p>}
                     {latest && (
                         <div className="space-y-3 rounded-xl border border-border bg-muted/30 p-3">
                             <div className="flex flex-wrap items-center justify-between gap-2">
                                 <span className="text-sm font-medium">{t('latestVersion')} <code>{latest.version}</code></span>
                                 <span className="text-xs text-muted-foreground">{formatDate(latest.published_at)}</span>
                             </div>
-                            <ReleaseDownloads assets={latest.assets} />
+                            {inAppUpdate ? <details className="text-xs text-muted-foreground">
+                                <summary className="cursor-pointer py-1">{t('desktopUpdate.manualDownloads')}</summary>
+                                <div className="pt-2"><ReleaseDownloads assets={latest.assets} /></div>
+                            </details> : <ReleaseDownloads assets={latest.assets} />}
                             <a href={latest.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline">
                                 {t('viewRelease')}<ExternalLink className="size-3" />
                             </a>
