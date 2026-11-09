@@ -149,6 +149,16 @@
             "modelsHint": "將所選分組加入 DSH 模型目錄，並設為新會話的預設模型。",
             "defaultModel": "預設模型分組",
             "selectModel": "請選擇模型分組",
+            "reasoningEffort": "推理等級",
+            "reasoningHint": "Default 跟隨提供商預設設定；其餘檔位需上游模型支援。",
+            "reasoningExisting": "{effort}（目前設定）",
+            "reasoningLevels": {
+                "default": "Default（預設）",
+                "off": "Off（關閉）",
+                "low": "Low（低）",
+                "high": "High（高）",
+                "max": "Max（最高）"
+            },
             "selectRequired": "請選擇有效的章魚金鑰與預設模型分組。",
             "currentModel": "目前已儲存：{provider} / {model}",
             "keysFailed": "金鑰清單載入失敗，請稍後重試。",

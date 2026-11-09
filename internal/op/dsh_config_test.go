@@ -170,7 +170,7 @@ func TestDshPrepareAndSavePreservesOtherProvidersAndCredentials(t *testing.T) {
 		}
 	}
 	prepared := dshTestPrepare(t, keyID, groupID, "")
-	if prepared.DSH.API != "openai-responses" || !prepared.DSH.ReasoningReset {
+	if prepared.DSH.API != "openai-responses" || prepared.DSH.ReasoningReset || prepared.DSH.ReasoningEffort != "max" {
 		t.Fatal("existing API and reasoning compatibility were not handled")
 	}
 	for _, path := range []string{paths.profile, paths.credentials} {
@@ -188,8 +188,8 @@ func TestDshPrepareAndSavePreservesOtherProvidersAndCredentials(t *testing.T) {
 			t.Fatalf("missing preserved/generated field %s", text)
 		}
 	}
-	if strings.Contains(prepared.Content, "reasoningEffort: max") || strings.Contains(prepared.Content, "sk-auto-test") {
-		t.Fatal("unsafe reasoning or inline credential")
+	if !strings.Contains(prepared.Content, "reasoningEffort: max") || strings.Contains(prepared.Content, "sk-auto-test") {
+		t.Fatal("supported reasoning was lost or a credential was inlined")
 	}
 	again, err := DshAutoConfigPrepare(model.AgentAutoConfigRequest{Agent: dshAgentID, APIKeyID: keyID, DSH: &model.DshAutoConfigOptions{ModelGroupID: groupID}, CurrentContent: &prepared.Content}, context.Background())
 	if err != nil || again.Content != prepared.Content {

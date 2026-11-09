@@ -149,6 +149,16 @@
             "modelsHint": "Add the selected group to DSH's catalog and use it as the default for new sessions.",
             "defaultModel": "Default model group",
             "selectModel": "Select a model group",
+            "reasoningEffort": "Reasoning level",
+            "reasoningHint": "Default follows the provider's setting. Other levels require support from the upstream model.",
+            "reasoningExisting": "{effort} (current configuration)",
+            "reasoningLevels": {
+                "default": "Default",
+                "off": "Off",
+                "low": "Low",
+                "high": "High",
+                "max": "Max"
+            },
             "selectRequired": "Select a valid Octopus key and default model group.",
             "currentModel": "Currently saved: {provider} / {model}",
             "keysFailed": "Could not load API keys. Please try again.",

@@ -14,11 +14,12 @@ type AgentConfigSaveRequest struct {
 	DSH   *DshConfigSaveOptions `json:"dsh,omitempty"`
 }
 
-// DshAutoConfigOptions 选择桌面 profile 的默认分组及客户端协议。
+// DshAutoConfigOptions 选择桌面 profile 的默认分组、客户端协议及推理等级。
 type DshAutoConfigOptions struct {
-	Profile      string `json:"profile,omitempty"`
-	ModelGroupID int    `json:"model_group_id"`
-	API          string `json:"api,omitempty"`
+	Profile         string  `json:"profile,omitempty"`
+	ModelGroupID    int     `json:"model_group_id"`
+	API             string  `json:"api,omitempty"`
+	ReasoningEffort *string `json:"reasoning_effort,omitempty"` // 未传时保留兼容的原值，default 跟随提供商默认值。
 }
 
 // DshConfigSaveOptions 凭据只由后端从密钥 ID 获取，不经过文件编辑器。
@@ -39,6 +40,7 @@ type DshConfigState struct {
 	CredentialRevision   string `json:"credential_revision"`
 	CurrentProvider      string `json:"current_provider"`
 	CurrentModel         string `json:"current_model"`
+	ReasoningEffort      string `json:"reasoning_effort"`
 }
 
 // DshPreparedConfig 回填草稿所需的公开信息；修订仅针对本功能管理的引用。
@@ -49,6 +51,7 @@ type DshPreparedConfig struct {
 	ModelGroupID        int    `json:"model_group_id"`
 	ModelName           string `json:"model_name"`
 	API                 string `json:"api"`
+	ReasoningEffort     string `json:"reasoning_effort"`
 	ReasoningReset      bool   `json:"reasoning_reset"`
 }
 

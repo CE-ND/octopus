@@ -24,6 +24,7 @@ export interface AgentConfigListResponse {
 }
 
 export type DshAPI = 'openai-completions' | 'openai-responses' | 'anthropic-messages';
+export type DshReasoningEffort = 'default' | 'off' | 'low' | 'high' | 'max';
 
 export interface DshConfigState {
     profile: string;
@@ -34,6 +35,7 @@ export interface DshConfigState {
     credential_revision: string;
     current_provider: string;
     current_model: string;
+    reasoning_effort: string;
 }
 
 export interface DshPreparedConfig {
@@ -43,6 +45,7 @@ export interface DshPreparedConfig {
     model_group_id: number;
     model_name: string;
     api: DshAPI;
+    reasoning_effort: string;
     reasoning_reset: boolean;
 }
 
@@ -82,7 +85,7 @@ export interface AgentAutoConfigInput {
     codex_model_group_id?: number;
     kimi_code_model_group_id?: number;
     current_content?: string;
-    dsh?: { profile: string; model_group_id: number; api?: DshAPI };
+    dsh?: { profile: string; model_group_id: number; api?: DshAPI; reasoning_effort?: DshReasoningEffort };
 }
 
 /** GET /api/v1/agent-config/list?agent=xxx */

@@ -10,7 +10,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/animate-ui/components/
 import { toast } from '@/components/common/Toast';
 import { useAPIKeyList, useCreateAPIKey, type APIKey } from '@/api/endpoints/apikey';
 import { useGroupList } from '@/api/endpoints/group';
-import { useAgentAutoConfig, useAgentConfig, useSaveAgentConfig, type DshAPI, type DshPreparedConfig } from '@/api/endpoints/agent-config';
+import { useAgentAutoConfig, useAgentConfig, useSaveAgentConfig, type DshAPI, type DshPreparedConfig, type DshReasoningEffort } from '@/api/endpoints/agent-config';
 import { AgentConfigHeader } from './AgentConfigHeader';
 import { AgentConfigPanel, AgentConfigPanels } from './AgentConfigPanels';
 import { AgentConfigTextEditor } from './AgentConfigTextEditor';
@@ -23,6 +23,7 @@ const APIS: { value: DshAPI; label: string }[] = [
     { value: 'openai-responses', label: 'OpenAI Responses' },
     { value: 'anthropic-messages', label: 'Anthropic Messages' },
 ];
+const REASONING_EFFORTS: DshReasoningEffort[] = ['default', 'off', 'low', 'high', 'max'];
 type View = 'quick' | 'file';
 type Draft = { content: string; baseModifiedAt: number };
 type PendingCredential = DshPreparedConfig & { api_key_id: number };
@@ -50,6 +51,7 @@ export function DeepSeekHarnessConfigContent() {
     const [keyOverride, setKeyOverride] = useState<number>();
     const [groupOverride, setGroupOverride] = useState<number>();
     const [apiOverride, setApiOverride] = useState<DshAPI>();
+    const [reasoningOverride, setReasoningOverride] = useState<DshReasoningEffort>();
     const [createdKey, setCreatedKey] = useState<APIKey>();
     const [advanced, setAdvanced] = useState(false);
     const [processing, setProcessing] = useState(false);
@@ -72,32 +74,40 @@ export function DeepSeekHarnessConfigContent() {
     const groups = (groupsQuery.data ?? []).filter((group): group is AgentModelGroup => typeof group.id === 'number' && group.id > 0).sort((a,b) => a.name.localeCompare(b.name));
     const savedGroupId = state?.current_provider === 'octopus' ? groups.find(group => group.name === state.current_model)?.id ?? 0 : 0;
     const savedAPI = APIS.find(item => item.value === state?.api)?.value ?? 'openai-completions';
+    const savedReasoning = state?.reasoning_effort || 'default';
     const keyId = keyOverride ?? pendingCredential?.api_key_id ?? state?.api_key_id ?? 0;
     const groupId = groupOverride ?? pendingCredential?.model_group_id ?? savedGroupId;
     const api = apiOverride ?? pendingCredential?.api ?? savedAPI;
+    const reasoning = reasoningOverride ?? pendingCredential?.reasoning_effort ?? savedReasoning;
+    const customReasoning = !REASONING_EFFORTS.some(effort => effort === reasoning);
     const selectedKey = keys.find(key => key.id === keyId);
     const allowed = selectedKey?.supported_models?.trim() ? new Set(selectedKey.supported_models.split(',').map(name => name.trim())) : undefined;
     const selectedGroup = groups.find(group => group.id === groupId);
     const validKey = !!selectedKey?.enabled && (!selectedKey.expire_at || selectedKey.expire_at >= Date.now()/1000);
     const validSelection = validKey && !!selectedGroup && (!allowed || allowed.has(selectedGroup.name));
     const fileDirty = !!file && draft !== undefined && content !== file.content;
-    const quickPending = keyId !== (state?.api_key_id ?? 0) || groupId !== savedGroupId || (groupId > 0 && state?.current_provider !== 'octopus') || api !== savedAPI;
+    const quickPending = keyId !== (pendingCredential?.api_key_id ?? state?.api_key_id ?? 0)
+        || groupId !== (pendingCredential?.model_group_id ?? savedGroupId)
+        || (!pendingCredential && groupId > 0 && state?.current_provider !== 'octopus')
+        || api !== (pendingCredential?.api ?? savedAPI)
+        || reasoning !== (pendingCredential?.reasoning_effort ?? savedReasoning);
     const busy = processing || createKey.isPending || autoConfig.isPending || saveConfig.isPending;
     const hasChanges = fileDirty || !!pendingCredential || quickPending;
     const canSave = !!file && !busy && !conflict && (view === 'file' ? fileDirty || !!pendingCredential : hasChanges && (!quickPending || validSelection));
 
-    const resetQuick = () => { setKeyOverride(undefined); setGroupOverride(undefined); setApiOverride(undefined); };
+    const resetQuick = () => { setKeyOverride(undefined); setGroupOverride(undefined); setApiOverride(undefined); setReasoningOverride(undefined); };
     const putDraft = (text: string) => {
         if (file) setDraft(previous => ({ content: text, baseModifiedAt: previous?.baseModifiedAt ?? file.modified_at }));
     };
 
     const prepareDraft = async () => {
         if (!file || !validSelection) throw new Error(t('dshConfig.selectRequired'));
-        const result = await autoConfig.mutateAsync({ api_key_id: keyId, dsh: { profile: PROFILE, model_group_id: groupId, api }, current_content: content });
+        const result = await autoConfig.mutateAsync({ api_key_id: keyId, dsh: { profile: PROFILE, model_group_id: groupId, api, reasoning_effort: reasoningOverride }, current_content: content });
         if (!result.dsh) throw new Error(t('autoConfigFailed'));
         const pending = { ...result.dsh, api_key_id: keyId };
         putDraft(result.content);
         setPendingCredential(pending);
+        resetQuick();
         return { content: result.content, pending };
     };
 
@@ -191,6 +201,20 @@ export function DeepSeekHarnessConfigContent() {
                             <section className="space-y-3 border-t border-border/60 pt-4">
                                 <div className="space-y-1"><h3 className="text-sm font-medium">{t('dshConfig.models')}</h3><p className="text-xs text-muted-foreground">{t('dshConfig.modelsHint')}</p></div>
                                 <div className="space-y-1.5"><label htmlFor={`${instanceId}-model`} className="text-xs text-muted-foreground">{t('dshConfig.defaultModel')}</label><AgentModelGroupSelect id={`${instanceId}-model`} value={groupId} groups={groups} allowed={allowed} placeholder={t('dshConfig.selectModel')} disabled={busy || groupsQuery.isLoading} onChange={setGroupOverride} /></div>
+                                <div className="space-y-1.5">
+                                    <label htmlFor={`${instanceId}-reasoning`} className="text-xs text-muted-foreground">{t('dshConfig.reasoningEffort')}</label>
+                                    <Select value={reasoning} onValueChange={next => {
+                                        const effort = REASONING_EFFORTS.find(value => value === next);
+                                        if (effort) setReasoningOverride(effort);
+                                    }} disabled={busy || !selectedGroup}>
+                                        <SelectTrigger id={`${instanceId}-reasoning`} className="w-full rounded-xl bg-background shadow-none"><SelectValue /></SelectTrigger>
+                                        <SelectContent className="z-[70] rounded-xl">
+                                            {REASONING_EFFORTS.map(effort => <SelectItem key={effort} value={effort}>{t(`dshConfig.reasoningLevels.${effort}`)}</SelectItem>)}
+                                            {customReasoning && <SelectItem value={reasoning} disabled>{t('dshConfig.reasoningExisting', { effort: reasoning })}</SelectItem>}
+                                        </SelectContent>
+                                    </Select>
+                                    <p className="text-xs text-muted-foreground">{t('dshConfig.reasoningHint')}</p>
+                                </div>
                                 {state?.current_model && <p className="truncate text-xs text-muted-foreground">{t('dshConfig.currentModel',{provider:state.current_provider,model:state.current_model})}</p>}
                                 {groupsQuery.error && <p role="alert" className="text-xs text-destructive">{t('dshConfig.groupsFailed')}</p>}
                                 {!groupsQuery.isLoading && groups.length === 0 && <p className="text-xs text-muted-foreground">{t('dshConfig.noGroups')}</p>}

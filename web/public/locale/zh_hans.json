@@ -149,6 +149,16 @@
             "modelsHint": "将所选分组加入 DSH 模型目录，并设为新会话默认模型。",
             "defaultModel": "默认模型分组",
             "selectModel": "请选择模型分组",
+            "reasoningEffort": "推理等级",
+            "reasoningHint": "Default 跟随提供商默认设置；其余档位需上游模型支持。",
+            "reasoningExisting": "{effort}（当前配置）",
+            "reasoningLevels": {
+                "default": "Default（默认）",
+                "off": "Off（关闭）",
+                "low": "Low（低）",
+                "high": "High（高）",
+                "max": "Max（最高）"
+            },
             "selectRequired": "请选择有效的章鱼密钥和默认模型分组。",
             "currentModel": "当前已保存：{provider} / {model}",
             "keysFailed": "密钥列表加载失败，请稍后重试。",

@@ -217,6 +217,49 @@ func dshSupportsEffort(model *yaml.Node, effort string) bool {
 	return efforts != nil && efforts.Kind == yaml.MappingNode && dshGet(efforts, effort) != nil
 }
 
+func dshReasoningEffort(defaults *yaml.Node) string {
+	if effort := dshText(dshGet(defaults, "reasoningEffort")); effort != "" {
+		return effort
+	}
+	return "default"
+}
+
+// 只为未声明推理能力的模型补齐 DSH 档位；已有映射及显式 false 均保留。
+func dshConfigureReasoning(item, defaults *yaml.Node, selected *string) (bool, error) {
+	if selected != nil {
+		switch *selected {
+		case "default", "off", "low", "high", "max":
+		default:
+			return false, fmt.Errorf("DSH 推理等级必须为 Default、Off、Low、High 或 Max")
+		}
+	}
+	if efforts := dshGet(item, "reasoningEfforts"); efforts == nil || efforts.Tag == "!!null" {
+		efforts := dshMap()
+		// DSH 用空的 off 映射表示不发送 reasoning_effort，Default 则不写默认等级。
+		dshSet(efforts, "off", &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!null", Value: "null"})
+		for _, effort := range []string{"low", "high", "max"} {
+			dshSet(efforts, effort, dshString(effort))
+		}
+		dshSet(item, "reasoningEfforts", efforts)
+	}
+	if selected != nil {
+		if *selected == "default" {
+			dshRemove(defaults, "reasoningEffort")
+			return false, nil
+		}
+		if !dshSupportsEffort(item, *selected) {
+			return false, fmt.Errorf("所选模型的自定义 reasoningEfforts 未声明 %s 等级，请在配置文件中调整", *selected)
+		}
+		dshSet(defaults, "reasoningEffort", dshString(*selected))
+		return false, nil
+	}
+	reset := !dshSupportsEffort(item, dshText(dshGet(defaults, "reasoningEffort")))
+	if reset {
+		dshRemove(defaults, "reasoningEffort")
+	}
+	return reset, nil
+}
+
 func validateDshOctopus(p *dshProfile) error {
 	defaults, err := p.config("agent-default-model", false)
 	if err != nil {
@@ -312,6 +355,7 @@ func DshConfigList(profile string, ctx context.Context) ([]AgentConfigFileView, 
 		api = "openai-completions"
 	}
 	state := &model.DshConfigState{Profile: "desktop", API: api, CredentialReference: ref, CredentialRevision: dshCredentialRevision(credentials), CurrentProvider: dshText(dshGet(defaults, "provider")), CurrentModel: dshText(dshGet(defaults, "model"))}
+	state.ReasoningEffort = dshReasoningEffort(defaults)
 	value := dshCredentialValue(credentials, ref)
 	state.CredentialConfigured = value != ""
 	if value != "" {
@@ -411,9 +455,9 @@ func DshAutoConfigPrepare(req model.AgentAutoConfigRequest, ctx context.Context)
 	if err != nil {
 		return result, err
 	}
-	reasoningReset := !dshSupportsEffort(item, dshText(dshGet(defaults, "reasoningEffort")))
-	if reasoningReset {
-		dshRemove(defaults, "reasoningEffort")
+	reasoningReset, err := dshConfigureReasoning(item, defaults, req.DSH.ReasoningEffort)
+	if err != nil {
+		return result, err
 	}
 	dshSet(defaults, "provider", dshString("octopus"))
 	dshSet(defaults, "model", dshString(name))
@@ -425,7 +469,7 @@ func DshAutoConfigPrepare(req model.AgentAutoConfigRequest, ctx context.Context)
 		return result, err
 	}
 	result.FileKey, result.Content = "profile", content
-	result.DSH = &model.DshPreparedConfig{Profile: "desktop", CredentialReference: dshManagedReference, CredentialRevision: dshCredentialRevision(credentials), ModelGroupID: req.DSH.ModelGroupID, ModelName: name, API: api, ReasoningReset: reasoningReset}
+	result.DSH = &model.DshPreparedConfig{Profile: "desktop", CredentialReference: dshManagedReference, CredentialRevision: dshCredentialRevision(credentials), ModelGroupID: req.DSH.ModelGroupID, ModelName: name, API: api, ReasoningEffort: dshReasoningEffort(defaults), ReasoningReset: reasoningReset}
 	return result, nil
 }
 
