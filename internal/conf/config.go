@@ -129,5 +129,6 @@ func setDefaults() {
 	viper.SetDefault("plugin.enabled", true)
 	viper.SetDefault("plugin.data_dir", "data/plugins")
 	viper.SetDefault("plugin.registry", "https://registry.npmjs.org")
-	viper.SetDefault("plugin.marketplace_user", "")
+	// 本项目分发的插件商城默认使用 cend 维护的 npm 插件包，可在 config.json 中覆盖。
+	viper.SetDefault("plugin.marketplace_user", "cend")
 }
