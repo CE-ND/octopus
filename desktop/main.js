@@ -21,7 +21,22 @@ let desktopUpdater = null;
 const isWindows = process.platform === 'win32';
 const appId = 'com.hureru.octopus.desktop';
 const backendBinaryName = isWindows ? 'octopus.exe' : 'octopus';
-const defaultBackendPort = 18777;
+
+// 开发环境（源码中的 electron .）与生产环境（打包后的桌面端）使用两套隔离的数据目录：
+// - 生产：~/.octopus，默认端口 18777
+// - 开发：~/.octopus-dev，默认端口 18778
+// 开发环境同时使用独立的 Electron userData，避免 requestSingleInstanceLock
+// 被正在运行的生产桌面端挡住。
+const isDevelopment = !app.isPackaged;
+const defaultAppRoot = path.join(os.homedir(), isDevelopment ? '.octopus-dev' : '.octopus');
+const defaultBackendPort = isDevelopment ? 18778 : 18777;
+
+if (isDevelopment) {
+  const userDataDir = process.env.OCTOPUS_DESKTOP_USER_DATA_DIR
+    || path.join(process.env.OCTOPUS_DESKTOP_DATA_DIR || defaultAppRoot, 'electron-profile');
+  fs.mkdirSync(userDataDir, { recursive: true });
+  app.setPath('userData', userDataDir);
+}
 
 if (isWindows) {
   app.setAppUserModelId(appId);
@@ -141,7 +156,7 @@ function migrateLegacyUserData(root) {
 }
 
 function getUserDataPaths() {
-  const root = process.env.OCTOPUS_DESKTOP_DATA_DIR || path.join(os.homedir(), '.octopus');
+  const root = process.env.OCTOPUS_DESKTOP_DATA_DIR || defaultAppRoot;
   migrateLegacyUserData(root);
   return {
     root,

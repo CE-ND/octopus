@@ -5,10 +5,11 @@
   "description": "Desktop wrapper for Octopus",
   "main": "desktop/main.js",
   "scripts": {
+    "dev": "node scripts/dev-desktop.cjs",
     "desktop:test": "node --test scripts/tests/*.test.cjs",
     "desktop:test:bridge": "node scripts/test-desktop-update-bridge.cjs",
     "desktop:prepare": "node scripts/desktop-prepare.js",
-    "desktop:dev": "pnpm desktop:prepare && electron .",
+    "desktop:dev": "node scripts/dev-desktop.cjs",
     "desktop:pack": "pnpm desktop:prepare && electron-builder --dir",
     "desktop:dist": "pnpm desktop:prepare && electron-builder",
     "desktop:dist:custom": "node scripts/desktop-custom-installer.js",
