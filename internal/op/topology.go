@@ -2,6 +2,8 @@ package op
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"sort"
 	"sync"
@@ -13,39 +15,43 @@ import (
 // 纯内存不落库，服务重启后自然清零；条目超过 topologyEntryTTL 无活动即清除。
 
 const (
-	// TopologyActiveWindow 最近一次调用落在该窗口内视为活跃（前端据此画流光实线）
-	TopologyActiveWindow = 60 * time.Second
 	// topologyEntryTTL 无活动条目的保留时长，超时后从注册表清除
 	topologyEntryTTL = 15 * time.Minute
 )
 
 // TopologyCall 一次调用的归因信息，由 relay 在请求开始时构造
 type TopologyCall struct {
-	Agent      string // 调用方 agent 标识：claude-code / codex / gemini-cli / other
-	APIKeyID   int
-	GroupID    int
-	GroupName  string
-	Model      string // 请求模型名（在本系统中即分组名）
-	Protocol   string // anthropic / openai-chat / openai-responses / embedding
+	Agent     string // 调用方 agent 标识：claude-code / codex / gemini-cli / other
+	APIKeyID  int
+	GroupID   int
+	GroupName string
+	Model     string // 请求模型名（在本系统中即分组名）
+	Protocol  string // anthropic / openai-chat / openai-responses / embedding
 }
 
 type topologyEntry struct {
-	agent       string
-	apiKeyName  string
-	groupID     int
-	groupName   string
-	model       string
-	protocol    string
+	agent      string
+	apiKeyName string
+	groupID    int
+	groupName  string
+	model      string
+	protocol   string
 
-	active      int    // 在途请求数
-	calls       int64  // 保留期内总调用次数
-	lastSeen    int64  // 最近一次活动（开始或结束）的 unix 秒
-	lastSuccess int32  // -1 未知；0 失败；1 成功（最近一次）
+	active      int   // 在途请求数
+	calls       int64 // 保留期内总调用次数
+	lastSeen    int64 // 最近一次活动（开始或结束）的 unix 秒
+	lastSuccess int32 // -1 未知；0 失败；1 成功（最近一次）
 }
 
 var (
 	topologyMu      sync.RWMutex
 	topologyEntries = map[string]*topologyEntry{}
+
+	topologySubscribersMu sync.RWMutex
+	topologySubscribers   = map[chan TopologySnapshot]struct{}{}
+
+	topologyStreamTokensMu sync.RWMutex
+	topologyStreamTokens   = map[string]struct{}{}
 )
 
 func topologyEntryKey(call TopologyCall, keyName string) string {
@@ -81,6 +87,7 @@ func TopologyBegin(call TopologyCall) func(success bool) {
 	entry.calls++
 	entry.lastSeen = now
 	topologyMu.Unlock()
+	notifyTopologySubscribers()
 
 	var once sync.Once
 	return func(success bool) {
@@ -97,6 +104,7 @@ func TopologyBegin(call TopologyCall) func(success bool) {
 				atomic.StoreInt32(&entry.lastSuccess, 0)
 			}
 			topologyMu.Unlock()
+			notifyTopologySubscribers()
 		})
 	}
 }
@@ -187,4 +195,61 @@ func TopologySnapshotGet() TopologySnapshot {
 	sort.SliceStable(callers, func(a, b int) bool { return callers[a].LastSeen > callers[b].LastSeen })
 
 	return TopologySnapshot{Now: now, Callers: callers}
+}
+
+// TopologyStreamTokenCreate 生成一次性 SSE 连接令牌，避免 EventSource 无法携带 Authorization 头。
+func TopologyStreamTokenCreate() (string, error) {
+	bytes := make([]byte, 32)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", err
+	}
+	token := hex.EncodeToString(bytes)
+
+	topologyStreamTokensMu.Lock()
+	topologyStreamTokens[token] = struct{}{}
+	topologyStreamTokensMu.Unlock()
+	return token, nil
+}
+
+func TopologyStreamTokenVerify(token string) bool {
+	topologyStreamTokensMu.RLock()
+	_, ok := topologyStreamTokens[token]
+	topologyStreamTokensMu.RUnlock()
+	return ok
+}
+
+func TopologyStreamTokenRevoke(token string) {
+	topologyStreamTokensMu.Lock()
+	delete(topologyStreamTokens, token)
+	topologyStreamTokensMu.Unlock()
+}
+
+// TopologySubscribe 订阅拓扑快照变化。发送端使用非阻塞投递，慢客户端由 SSE handler 的定时快照兜底。
+func TopologySubscribe() chan TopologySnapshot {
+	ch := make(chan TopologySnapshot, 16)
+	topologySubscribersMu.Lock()
+	topologySubscribers[ch] = struct{}{}
+	topologySubscribersMu.Unlock()
+	return ch
+}
+
+func TopologyUnsubscribe(ch chan TopologySnapshot) {
+	topologySubscribersMu.Lock()
+	delete(topologySubscribers, ch)
+	topologySubscribersMu.Unlock()
+	close(ch)
+}
+
+func notifyTopologySubscribers() {
+	snapshot := TopologySnapshotGet()
+
+	topologySubscribersMu.RLock()
+	defer topologySubscribersMu.RUnlock()
+	for ch := range topologySubscribers {
+		select {
+		case ch <- snapshot:
+		default:
+			// SSE handler 会定时发送完整快照，丢弃一次事件不会造成永久不同步。
+		}
+	}
 }

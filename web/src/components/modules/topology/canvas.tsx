@@ -174,7 +174,6 @@ export function TopologyCanvas({ view }: { view: TopologyLiveView }) {
     const t = useTranslations('topology');
     const groupsQuery = useGroupList();
     const groups: Group[] = useMemo(() => groupsQuery.data ?? [], [groupsQuery.data]);
-    const now = view.now;
 
     const containerRef = useRef<HTMLDivElement>(null);
     const layoutRef = useRef<HTMLDivElement>(null);
@@ -303,7 +302,7 @@ export function TopologyCanvas({ view }: { view: TopologyLiveView }) {
                 agent: caller.agent,
                 title: agentDisplayName(caller.agent),
                 subtitle: caller.api_key_name,
-                status: isTopologyNodeActive(caller.active, caller.last_seen, now) ? 'active' : 'idle',
+                status: isTopologyNodeActive(caller.active) ? 'active' : 'idle',
                 anyActive: caller.active > 0,
                 lastSeen: caller.last_seen,
                 hasConfig: hasConfigByAgent.get(caller.agent) ?? false,
@@ -323,7 +322,7 @@ export function TopologyCanvas({ view }: { view: TopologyLiveView }) {
             });
         }
         return [...nodes.values()];
-    }, [view, now]);
+    }, [view]);
 
     // 右列：被调用的分组（活跃优先）+ 配置中的分组填充灰卡
     const groupNodes = useMemo<GroupNode[]>(() => {
@@ -331,7 +330,7 @@ export function TopologyCanvas({ view }: { view: TopologyLiveView }) {
         for (const caller of view.callers) {
             for (const link of caller.groups) {
                 const key = String(link.group_id || link.group_name);
-                const active = isTopologyNodeActive(link.active, link.last_seen, now);
+                const active = isTopologyNodeActive(link.active);
                 const existing = called.get(key);
                 if (!existing) {
                     called.set(key, {
@@ -370,7 +369,7 @@ export function TopologyCanvas({ view }: { view: TopologyLiveView }) {
             });
         }
         return result.slice(0, GROUP_CARD_LIMIT);
-    }, [view, groups, now]);
+    }, [view, groups]);
 
     // 用 offsetLeft/offsetTop 计算相对容器的布局位置（不含 CSS transform）。
     // 不能用 getBoundingClientRect：外层 AnimatePresence 入场动画（scale/translate）

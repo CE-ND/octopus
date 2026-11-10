@@ -43,7 +43,7 @@ func Start() error {
 
 	r.Use(gzip.Gzip(gzip.DefaultCompression,
 		gzip.WithExcludedPaths([]string{"/v1/"}),
-		gzip.WithExcludedPathsRegexs([]string{`/api/v1/log/stream`}),
+		gzip.WithExcludedPathsRegexs([]string{`/api/v1/log/stream`, `/api/v1/topology/stream`}),
 	))
 
 	r.Use(middleware.Logger(middleware.LoggerConfig{

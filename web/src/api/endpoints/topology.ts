@@ -1,7 +1,9 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
-import { apiClient } from '@/api/client';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
+import { apiClient, API_BASE_URL } from '@/api/client';
+import { logger } from '@/lib/logger';
 
 /** 网关 → 分组 的一条调用链路 */
 export interface TopologyGroupLink {
@@ -40,25 +42,96 @@ export interface TopologyLiveView {
     callers: TopologyCaller[];
 }
 
-/** 活跃判定：有在途请求，或 60 秒内有过调用（与后端 TopologyActiveWindow 一致） */
-export function isTopologyNodeActive(active: number, lastSeen: number, now: number): boolean {
-    return active > 0 || now - lastSeen < 60;
+/** 活跃判定：只有存在在途请求才播放流光；last_seen 仅用于排序和展示。 */
+export function isTopologyNodeActive(active: number): boolean {
+    return active > 0;
 }
 
+const topologyQueryKey = ['topology', 'live'] as const;
+
 /**
- * 实时调用拓扑：本机哪些 agent 正在调用网关、走了哪个分组。
- * 有活跃调用时 2s 快轮询，空闲时 8s 慢轮询（仿 group-health 自适应模式）。
+ * 实时调用拓扑：优先通过 SSE 接收后端 begin/end 快照；
+ * SSE 不可用时退化为 2s 轮询，避免页面状态卡死。
  */
 export function useTopologyLive() {
-    return useQuery({
-        queryKey: ['topology', 'live'],
-        queryFn: async () => {
-            return apiClient.get<TopologyLiveView>('/api/v1/topology/live');
-        },
-        refetchInterval: (query) => {
-            const data = query.state.data as TopologyLiveView | undefined;
-            const hasActive = data?.callers.some((caller) => caller.active > 0);
-            return hasActive ? 2000 : 8000;
-        },
+    const queryClient = useQueryClient();
+    const [streamConnected, setStreamConnected] = useState(false);
+
+    const query = useQuery({
+        queryKey: topologyQueryKey,
+        queryFn: () => apiClient.get<TopologyLiveView>('/api/v1/topology/live'),
+        refetchInterval: streamConnected ? false : 2000,
+        refetchIntervalInBackground: true,
     });
+
+    useEffect(() => {
+        let disposed = false;
+        let source: EventSource | null = null;
+        let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+        let attempt = 0;
+
+        const scheduleReconnect = () => {
+            if (disposed || reconnectTimer) return;
+            const delay = Math.min(30000, 1000 * 2 ** attempt);
+            attempt = Math.min(attempt + 1, 5);
+            reconnectTimer = setTimeout(() => {
+                reconnectTimer = null;
+                void connect();
+            }, delay);
+        };
+
+        const connect = async () => {
+            try {
+                const { token } = await apiClient.get<{ token: string }>('/api/v1/topology/stream-token');
+                if (disposed) return;
+
+                source?.close();
+                const eventSource = new EventSource(
+                    `${API_BASE_URL}/api/v1/topology/stream?token=${encodeURIComponent(token)}`
+                );
+                source = eventSource;
+
+                eventSource.onopen = () => {
+                    if (disposed) return;
+                    attempt = 0;
+                    setStreamConnected(true);
+                };
+
+                eventSource.onmessage = event => {
+                    if (disposed) return;
+                    try {
+                        const view = JSON.parse(event.data) as TopologyLiveView;
+                        queryClient.setQueryData(topologyQueryKey, view);
+                        setStreamConnected(true);
+                    } catch (error) {
+                        logger.error('解析拓扑 SSE 数据失败:', error);
+                    }
+                };
+
+                eventSource.onerror = () => {
+                    if (disposed) return;
+                    setStreamConnected(false);
+                    eventSource.close();
+                    if (source === eventSource) source = null;
+                    scheduleReconnect();
+                };
+            } catch (error) {
+                if (disposed) return;
+                setStreamConnected(false);
+                logger.error('连接拓扑 SSE 失败:', error);
+                scheduleReconnect();
+            }
+        };
+
+        void connect();
+
+        return () => {
+            disposed = true;
+            if (reconnectTimer) clearTimeout(reconnectTimer);
+            source?.close();
+            source = null;
+        };
+    }, [queryClient]);
+
+    return { data: query.data, isLoading: query.isLoading, error: query.error };
 }

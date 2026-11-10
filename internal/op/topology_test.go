@@ -125,6 +125,32 @@ func TestTopologyExpiredEntriesPruned(t *testing.T) {
 	}
 }
 
+func TestTopologySubscribeReceivesBeginAndEnd(t *testing.T) {
+	resetTopologyRegistry()
+	events := TopologySubscribe()
+	defer TopologyUnsubscribe(events)
+
+	end := TopologyBegin(topologyTestCall("codex", 1))
+	select {
+	case snapshot := <-events:
+		if len(snapshot.Callers) != 1 || snapshot.Callers[0].Active != 1 {
+			t.Fatalf("unexpected begin snapshot: %+v", snapshot)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for begin event")
+	}
+
+	end(true)
+	select {
+	case snapshot := <-events:
+		if len(snapshot.Callers) != 1 || snapshot.Callers[0].Active != 0 {
+			t.Fatalf("unexpected end snapshot: %+v", snapshot)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for end event")
+	}
+}
+
 func TestAgentDisplayName(t *testing.T) {
 	if AgentDisplayName("claude-code") != "Claude Code" {
 		t.Fatalf("unexpected display name: %s", AgentDisplayName("claude-code"))
