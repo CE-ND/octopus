@@ -164,6 +164,7 @@ export function useInstallPlugin() {
         onSuccess: () => {
             void qc.invalidateQueries({ queryKey: pluginKeys.status });
             void qc.invalidateQueries({ queryKey: pluginKeys.providers });
+            void qc.invalidateQueries({ queryKey: ['plugin', 'page'] });
             void qc.invalidateQueries({ queryKey: ['plugin', 'market'] });
         },
     });
@@ -176,6 +177,7 @@ export function useTogglePlugin() {
         onSuccess: () => {
             void qc.invalidateQueries({ queryKey: pluginKeys.status });
             void qc.invalidateQueries({ queryKey: pluginKeys.providers });
+            void qc.invalidateQueries({ queryKey: ['plugin', 'page'] });
         },
     });
 }
@@ -187,6 +189,7 @@ export function useRemovePlugin() {
         onSuccess: () => {
             void qc.invalidateQueries({ queryKey: pluginKeys.status });
             void qc.invalidateQueries({ queryKey: pluginKeys.providers });
+            void qc.invalidateQueries({ queryKey: ['plugin', 'page'] });
             void qc.invalidateQueries({ queryKey: ['plugin', 'market'] });
         },
     });
@@ -263,10 +266,13 @@ export function useSavePluginConfig() {
     });
 }
 
-export function usePluginPage(pluginID: string, pageID: string, enabled: boolean) {
+export function usePluginPage(pluginID: string, pageID: string, enabled: boolean, version: string) {
     return useQuery({
-        queryKey: ['plugin', 'page', pluginID, pageID],
+        // 页面 HTML 随插件版本变化；版本进入 key，插件升级后不会复用旧 iframe。
+        queryKey: ['plugin', 'page', pluginID, pageID, version],
         queryFn: () => apiClient.get<{ html: string }>('/api/v1/plugin/ui/page', { plugin_id: pluginID, page_id: pageID }),
         enabled: enabled && !!pluginID && !!pageID,
+        staleTime: 0,
+        refetchOnMount: 'always',
     });
 }

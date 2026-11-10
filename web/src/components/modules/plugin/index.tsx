@@ -50,7 +50,7 @@ export function Plugin() {
     const market = usePluginMarket(marketRefresh);
     const [loginTarget, setLoginTarget] = useState<{ pluginID: string; providerID: string; name: string } | null>(null);
     const [configTarget, setConfigTarget] = useState<PluginInfo | null>(null);
-    const [pageTarget, setPageTarget] = useState<{ pluginID: string; page: PluginUIPage } | null>(null);
+    const [pageTarget, setPageTarget] = useState<{ pluginID: string; page: PluginUIPage; version: string } | null>(null);
     const [manageTarget, setManageTarget] = useState<PluginInfo | null>(null);
 
     // 详情弹窗始终读取最新查询数据，保证从设置/登录等子弹窗返回后状态是新的
@@ -153,7 +153,7 @@ export function Plugin() {
                             providers={providersByPlugin.get(item.id) ?? []}
                             onLogin={(provider) => setLoginTarget({ pluginID: item.id, providerID: provider.provider_id, name: provider.name })}
                             onConfig={() => setConfigTarget(item)}
-                            onPage={(page) => setPageTarget({ pluginID: item.id, page })}
+                            onPage={(page) => setPageTarget({ pluginID: item.id, page, version: item.version })}
                         />
                     ))}
                 </div>
@@ -185,6 +185,7 @@ export function Plugin() {
                 <PluginPageDialog
                     open={!!pageTarget}
                     pluginID={pageTarget.pluginID}
+                    pluginVersion={(status.data?.plugins ?? []).find((plugin) => plugin.id === pageTarget.pluginID)?.version ?? pageTarget.version}
                     page={pageTarget.page}
                     onOpenChange={(open) => {
                         if (!open) setPageTarget(null);
@@ -215,7 +216,7 @@ export function Plugin() {
                                         setLoginTarget({ pluginID: managePlugin.id, providerID: providerId, name: provider?.name ?? providerId });
                                     }}
                                     onConfig={() => setConfigTarget(managePlugin)}
-                                    onPage={(page) => setPageTarget({ pluginID: managePlugin.id, page })}
+                                    onPage={(page) => setPageTarget({ pluginID: managePlugin.id, page, version: managePlugin.version })}
                                 />
                             ) : (
                                 <div className="min-h-0 overflow-y-auto px-6 py-5">
@@ -229,7 +230,7 @@ export function Plugin() {
                                             setLoginTarget({ pluginID: managePlugin.id, providerID: provider.provider_id, name: provider.name });
                                         }}
                                         onConfig={() => setConfigTarget(managePlugin)}
-                                        onPage={(page) => setPageTarget({ pluginID: managePlugin.id, page })}
+                                        onPage={(page) => setPageTarget({ pluginID: managePlugin.id, page, version: managePlugin.version })}
                                     />
                                 </div>
                             )}
@@ -602,7 +603,7 @@ function PluginManagePage({
     const t = useTranslations('plugin');
     const locale = useLocale();
     const { resolvedTheme } = useTheme();
-    const html = usePluginPage(plugin.id, page.id, true);
+    const html = usePluginPage(plugin.id, page.id, true, plugin.version);
     const iframeRef = useRef<HTMLIFrameElement>(null);
     usePluginPageBridge(iframeRef, plugin.id, page.id);
     const { mutate: logout } = useLogoutPlugin();
@@ -727,16 +728,18 @@ function PluginManagePage({
 function PluginPageDialog({
     open,
     pluginID,
+    pluginVersion,
     page,
     onOpenChange,
 }: {
     open: boolean;
     pluginID: string;
+    pluginVersion: string;
     page: PluginUIPage;
     onOpenChange: (open: boolean) => void;
 }) {
     const t = useTranslations('plugin');
-    const html = usePluginPage(pluginID, page.id, open);
+    const html = usePluginPage(pluginID, page.id, open, pluginVersion);
     const iframeRef = useRef<HTMLIFrameElement>(null);
     usePluginPageBridge(iframeRef, pluginID, page.id);
     return (

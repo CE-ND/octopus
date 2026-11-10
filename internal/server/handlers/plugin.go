@@ -261,6 +261,7 @@ func savePluginConfig(c *gin.Context) {
 }
 
 func pluginPage(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
 	html, err := plugin.Default().PluginPage(c.Request.Context(), c.Query("plugin_id"), c.Query("page_id"))
 	if err != nil {
 		resp.Error(c, http.StatusBadRequest, err.Error())
