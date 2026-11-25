@@ -18,6 +18,8 @@ import (
 //   - codex:       config.toml 顶层 model_provider / experimental_bearer_token +
 //     [model_providers.custom] 表内 name / base_url / wire_api / requires_openai_auth
 //   - claude-code: 网关和密钥，以及用户明确选择的默认模型/用途模型字段
+//   - gemini-cli:  ~/.gemini/.env 的网关地址/密钥/模型，以及 settings.json 的
+//     security.auth.selectedType 和 model.name；其余行与 JSON 字段逐字保留
 
 const autoConfigCodexTable = "[model_providers.custom]"
 
@@ -52,10 +54,28 @@ func AgentAutoConfigApply(agent string, apiKeyID int, ctx context.Context) (stri
 	return AgentAutoConfigPrepare(model.AgentAutoConfigRequest{Agent: agent, APIKeyID: apiKeyID}, ctx)
 }
 
+// AgentAutoConfigPrepareFiles 与 AgentAutoConfigPrepare 相同，但额外返回需要一起
+// 填入多文件 agent 草稿的所有文件（目前为 Gemini CLI 的 .env 和 settings.json）。
+func AgentAutoConfigPrepareFiles(req model.AgentAutoConfigRequest, ctx context.Context) (string, string, []model.AgentAutoConfigFile, error) {
+	if req.Agent == "gemini-cli" {
+		return prepareGeminiCLI(req, ctx)
+	}
+	fileKey, content, err := AgentAutoConfigPrepare(req, ctx)
+	if err != nil {
+		return "", "", nil, err
+	}
+	return fileKey, content, nil, nil
+}
+
 // AgentAutoConfigPrepare 合并编辑器草稿、连接设置和模型选择；仍由统一保存管线写盘。
 func AgentAutoConfigPrepare(req model.AgentAutoConfigRequest, ctx context.Context) (string, string, error) {
 	if req.DSH != nil && req.Agent != dshAgentID {
 		return "", "", fmt.Errorf("DSH options require DeepSeek Harness")
+	}
+	// Gemini CLI 同时拥有 .env 和 settings.json，交给专用实现生成多文件结果。
+	if req.Agent == "gemini-cli" {
+		fileKey, content, _, err := prepareGeminiCLI(req, ctx)
+		return fileKey, content, err
 	}
 	agent := req.Agent
 	var def *AgentDefinition
@@ -76,6 +96,12 @@ func AgentAutoConfigPrepare(req model.AgentAutoConfigRequest, ctx context.Contex
 	}
 	if req.KimiCodeModelGroupID < 0 || (req.KimiCodeModelGroupID > 0 && agent != "kimi-code") {
 		return "", "", fmt.Errorf("invalid Kimi Code model group selection")
+	}
+	if req.GeminiModelGroupID < 0 || (req.GeminiModelGroupID > 0 && agent != "gemini-cli") {
+		return "", "", fmt.Errorf("invalid Gemini CLI model group selection")
+	}
+	if req.CurrentContents != nil && agent != "gemini-cli" {
+		return "", "", fmt.Errorf("multi-file config drafts are only supported for Gemini CLI")
 	}
 	key, err := APIKeyGet(req.APIKeyID, ctx)
 	if err != nil {
@@ -222,6 +248,265 @@ func resolveClaudeModelGroups(groups *model.ClaudeCodeModelGroups, supportedMode
 		return selection, fmt.Errorf("select at least one model group")
 	}
 	return selection, nil
+}
+
+// prepareGeminiCLI 生成 Gemini CLI 的 .env 和 settings.json 两个文件的补丁。
+// .env 是真正携带密钥的文件；settings.json 只切换认证方式并可选更新 model.name，
+// 因此两个文件必须一起返回给前端草稿，用户确认后由统一保存管线落盘。
+func prepareGeminiCLI(req model.AgentAutoConfigRequest, ctx context.Context) (string, string, []model.AgentAutoConfigFile, error) {
+	if req.DSH != nil {
+		return "", "", nil, fmt.Errorf("DSH options require DeepSeek Harness")
+	}
+	if req.ModelGroups != nil {
+		return "", "", nil, fmt.Errorf("model group selection is only supported for Claude Code")
+	}
+	if req.CodexModelGroupID != 0 || req.KimiCodeModelGroupID != 0 {
+		return "", "", nil, fmt.Errorf("invalid model group selection")
+	}
+	if req.GeminiModelGroupID < 0 {
+		return "", "", nil, fmt.Errorf("invalid Gemini CLI model group selection")
+	}
+	var def *AgentDefinition
+	for i := range AgentDefinitions {
+		if AgentDefinitions[i].ID == "gemini-cli" {
+			def = &AgentDefinitions[i]
+			break
+		}
+	}
+	if def == nil || def.AutoConfigFileKey != "env" {
+		return "", "", nil, fmt.Errorf("agent %q does not support auto config", "gemini-cli")
+	}
+	key, err := APIKeyGet(req.APIKeyID, ctx)
+	if err != nil {
+		return "", "", nil, fmt.Errorf("api key %d not found: %w", req.APIKeyID, err)
+	}
+	if !key.Enabled {
+		return "", "", nil, fmt.Errorf("api key %d is disabled", req.APIKeyID)
+	}
+	apiKey := strings.TrimSpace(key.APIKey)
+	if apiKey == "" {
+		return "", "", nil, fmt.Errorf("api key %d has an empty value", req.APIKeyID)
+	}
+	selectedModel := ""
+	if req.GeminiModelGroupID > 0 {
+		selectedModel, err = agentModelGroupName(req.GeminiModelGroupID, key.SupportedModels, ctx)
+		if err != nil {
+			return "", "", nil, err
+		}
+	}
+
+	envContent := ""
+	settingsContent := ""
+	if req.CurrentContents != nil {
+		envContent = req.CurrentContents["env"]
+		settingsContent = req.CurrentContents["settings"]
+	} else {
+		if req.CurrentContent != nil {
+			envContent = *req.CurrentContent
+		} else {
+			envContent, err = readAgentConfigContent(def, "env")
+			if err != nil {
+				return "", "", nil, err
+			}
+		}
+		settingsContent, err = readAgentConfigContent(def, "settings")
+		if err != nil {
+			return "", "", nil, err
+		}
+	}
+
+	patchedEnv := patchGeminiEnv(envContent, apiKey, gatewayBaseURL(), selectedModel)
+	patchedSettings, err := mergeGeminiSettings(settingsContent, selectedModel)
+	if err != nil {
+		return "", "", nil, err
+	}
+	files := []model.AgentAutoConfigFile{
+		{FileKey: "env", Content: patchedEnv},
+		{FileKey: "settings", Content: patchedSettings},
+	}
+	return "env", patchedEnv, files, nil
+}
+
+func readAgentConfigContent(def *AgentDefinition, key string) (string, error) {
+	if def == nil || def.ConfigFiles == nil {
+		return "", nil
+	}
+	for _, file := range def.ConfigFiles() {
+		if file.Key != key {
+			continue
+		}
+		data, err := os.ReadFile(file.Path)
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		if err != nil {
+			return "", fmt.Errorf("read agent config: %w", err)
+		}
+		return string(data), nil
+	}
+	return "", nil
+}
+
+// geminiAutoConfigEnvKey 判断一个环境变量是否属于 Gemini CLI 的连接/鉴权字段。
+// GOOGLE_* 整个前缀都属于连接和鉴权；GEMINI_* 只取与鉴权相关的几个键，不能按前缀
+// 删除，否则会误删 GEMINI_SANDBOX、GEMINI_SYSTEM_MD 等用户设置。
+func geminiAutoConfigEnvKey(key string, hasSelectedModel bool) bool {
+	if strings.HasPrefix(key, "GOOGLE_") {
+		return true
+	}
+	if key == "GEMINI_MODEL" {
+		return hasSelectedModel
+	}
+	switch key {
+	case "GEMINI_API_KEY",
+		"GEMINI_API_KEY_AUTH_MECHANISM",
+		"GEMINI_CLI_CUSTOM_HEADERS",
+		"GEMINI_DEFAULT_AUTH_TYPE",
+		"GEMINI_CLI_USE_COMPUTE_ADC",
+		"CODE_ASSIST_ENDPOINT",
+		"CODE_ASSIST_API_VERSION":
+		return true
+	}
+	return false
+}
+
+// patchGeminiEnv 只改写 Gemini CLI 拥有的环境变量，保留用户注释、空行、
+// 其他变量以及原有顺序。GEMINI_MODEL 仅在用户明确选择分组时写入；未选择时
+// 保留当前模型配置，避免把用户已有模型重置掉。
+func patchGeminiEnv(content, apiKey, apiBaseURL, selectedModel string) string {
+	desired := [][2]string{
+		{"GOOGLE_GEMINI_BASE_URL", apiBaseURL},
+		{"GEMINI_API_KEY", apiKey},
+	}
+	if selectedModel != "" {
+		desired = append(desired, [2]string{"GEMINI_MODEL", selectedModel})
+	}
+	owned := make(map[string]string, len(desired))
+	for _, pair := range desired {
+		owned[pair[0]] = pair[1]
+	}
+
+	crlf := strings.Contains(content, "\r\n")
+	normalized := strings.ReplaceAll(content, "\r\n", "\n")
+	trailingNewline := normalized == "" || strings.HasSuffix(normalized, "\n")
+	if trailingNewline && normalized != "" {
+		normalized = strings.TrimSuffix(normalized, "\n")
+	}
+	lines := []string{}
+	if normalized != "" {
+		lines = strings.Split(normalized, "\n")
+	}
+	out := make([]string, 0, len(lines)+len(desired))
+	emitted := make(map[string]bool, len(desired))
+	for _, raw := range lines {
+		trimmed := strings.TrimSpace(raw)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			out = append(out, raw)
+			continue
+		}
+		body := trimmed
+		exportPrefix := ""
+		if strings.HasPrefix(body, "export ") {
+			exportPrefix = "export "
+			body = strings.TrimSpace(strings.TrimPrefix(body, "export "))
+		}
+		eq := strings.Index(body, "=")
+		if eq <= 0 {
+			out = append(out, raw)
+			continue
+		}
+		key := strings.TrimSpace(body[:eq])
+		value, managed := owned[key]
+		if !managed {
+			if geminiAutoConfigEnvKey(key, selectedModel != "") {
+				// 切到 API Key 模式时清掉 Google 登录 / Vertex / 自定义鉴权等
+				// 会覆盖本配置的连接变量；普通 GEMINI_* 设置原样保留。
+				continue
+			}
+			out = append(out, raw)
+			continue
+		}
+		if !emitted[key] {
+			// 原位改写第一处定义，保留用户的 export 前缀；重复定义直接删除。
+			out = append(out, exportPrefix+key+"="+value)
+			emitted[key] = true
+		}
+	}
+	for _, pair := range desired {
+		if !emitted[pair[0]] {
+			out = append(out, pair[0]+"="+pair[1])
+		}
+	}
+	result := strings.Join(out, "\n")
+	if trailingNewline && result != "" {
+		result += "\n"
+	}
+	if crlf {
+		result = strings.ReplaceAll(result, "\n", "\r\n")
+	}
+	return result
+}
+
+func geminiJSONObject(parent map[string]json.RawMessage, key string) (map[string]json.RawMessage, error) {
+	raw, ok := parent[key]
+	if !ok || strings.TrimSpace(string(raw)) == "" || strings.TrimSpace(string(raw)) == "null" {
+		return map[string]json.RawMessage{}, nil
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &object); err != nil {
+		return nil, fmt.Errorf("%s must be an object: %w", key, err)
+	}
+	if object == nil {
+		object = map[string]json.RawMessage{}
+	}
+	return object, nil
+}
+
+func setGeminiJSONString(parent map[string]json.RawMessage, key, value string) {
+	encoded, _ := json.Marshal(value)
+	parent[key] = encoded
+}
+
+func setGeminiJSONObject(parent map[string]json.RawMessage, key string, object map[string]json.RawMessage) {
+	encoded, _ := json.Marshal(object)
+	parent[key] = encoded
+}
+
+// mergeGeminiSettings 只更新 Gemini CLI 的认证方式和可选默认模型，保留其他字段。
+func mergeGeminiSettings(content, selectedModel string) (string, error) {
+	root := map[string]json.RawMessage{}
+	if strings.TrimSpace(content) != "" {
+		if err := json.Unmarshal([]byte(content), &root); err != nil {
+			return "", fmt.Errorf("settings.json is not valid JSON: %w", err)
+		}
+	}
+	if root == nil {
+		root = map[string]json.RawMessage{}
+	}
+	security, err := geminiJSONObject(root, "security")
+	if err != nil {
+		return "", err
+	}
+	auth, err := geminiJSONObject(security, "auth")
+	if err != nil {
+		return "", err
+	}
+	setGeminiJSONString(auth, "selectedType", "gemini-api-key")
+	setGeminiJSONObject(security, "auth", auth)
+	setGeminiJSONObject(root, "security", security)
+	if selectedModel != "" {
+		model, err := geminiJSONObject(root, "model")
+		if err != nil {
+			return "", err
+		}
+		setGeminiJSONString(model, "name", selectedModel)
+		setGeminiJSONObject(root, "model", model)
+	}
+	out, err := json.MarshalIndent(root, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	return string(out) + "\n", nil
 }
 
 // patchCodexToml 行级补丁：只改写本功能拥有的键，其余行逐字保留。

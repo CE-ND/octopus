@@ -414,6 +414,37 @@ base_url = "http://127.0.0.1:18777/v1"
 }
 ```
 
+### Gemini CLI / Antigravity CLI
+
+Octopus 同时提供 Gemini 原生入站接口：
+
+```text
+POST /v1beta/models/{model}:generateContent
+POST /v1beta/models/{model}:streamGenerateContent?alt=sse
+GET  /v1beta/models
+```
+
+Gemini CLI 配置：
+
+```powershell
+$env:GOOGLE_GEMINI_BASE_URL = "http://127.0.0.1:18777"
+$env:GEMINI_API_KEY = "sk-octopus-P48ROljwJmWBYVARjwQM8Nkiezlg7WOrXXOWDYY8TI5p9Mzg"
+$env:GEMINI_MODEL = "gemini-4-neon-c-ep" # 填写正确的分组名称
+gemini -p "你好"
+```
+
+拓扑页的 Gemini CLI 卡片也支持自动配置：选择 Octopus 密钥和模型分组后，会生成 `~/.gemini/.env` 与 `~/.gemini/settings.json` 的补丁，保留其余环境变量和设置，确认保存后生效。
+
+Antigravity CLI（`agy`）在 `~/.gemini/antigravity-cli/settings.json` 中设置：
+
+```json
+{
+  "modelProvider": "gemini"
+}
+```
+
+并通过环境变量设置 `GEMINI_API_KEY` 和 `GOOGLE_GEMINI_BASE_URL`。注意 base URL 只填 Octopus 根地址，不要带 `/v1` 或 `/v1beta`，客户端会自行拼接 `/v1beta/models/...`。
+
 
 ---
 

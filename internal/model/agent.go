@@ -73,13 +73,24 @@ type AgentAutoConfigRequest struct {
 	ModelGroups          *ClaudeCodeModelGroups `json:"model_groups,omitempty"`
 	CodexModelGroupID    int                    `json:"codex_model_group_id,omitempty"`     // 0 表示保留 Codex 当前模型
 	KimiCodeModelGroupID int                    `json:"kimi_code_model_group_id,omitempty"` // Kimi Code 自动配置必填
-	CurrentContent       *string                `json:"current_content,omitempty"`          // 编辑器草稿；省略时读取磁盘
+	GeminiModelGroupID   int                    `json:"gemini_model_group_id,omitempty"`    // 0 表示保留 Gemini CLI 当前模型
+	CurrentContent       *string                `json:"current_content,omitempty"`          // 单文件 agent 的编辑器草稿；省略时读取磁盘
+	CurrentContents      map[string]string      `json:"current_contents,omitempty"`         // 多文件 agent 的编辑器草稿，按文件 key 索引
 	DSH                  *DshAutoConfigOptions  `json:"dsh,omitempty"`
 }
 
-// AgentAutoConfigResponse 自动配置结果：补丁后的配置内容（由前端填入编辑器草稿）
+// AgentAutoConfigFile 自动配置写入的单个文件内容。
+type AgentAutoConfigFile struct {
+	FileKey string `json:"file_key"`
+	Content string `json:"content"`
+}
+
+// AgentAutoConfigResponse 自动配置结果：补丁后的配置内容（由前端填入编辑器草稿）。
+// FileKey/Content 保留给单文件 agent；Files 用于 Gemini CLI 这类同时写 .env 和
+// settings.json 的 agent，旧客户端仍可按主文件 key 使用前两个字段。
 type AgentAutoConfigResponse struct {
-	FileKey string             `json:"file_key"`
-	Content string             `json:"content"`
-	DSH     *DshPreparedConfig `json:"dsh,omitempty"`
+	FileKey string                `json:"file_key"`
+	Content string                `json:"content"`
+	Files   []AgentAutoConfigFile `json:"files,omitempty"`
+	DSH     *DshPreparedConfig    `json:"dsh,omitempty"`
 }

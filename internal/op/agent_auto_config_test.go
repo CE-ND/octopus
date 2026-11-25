@@ -571,12 +571,167 @@ func TestMergeClaudeSettingsEmptyContent(t *testing.T) {
 }
 
 func TestAgentAutoConfigSupported(t *testing.T) {
-	if !AgentAutoConfigSupported("codex") || !AgentAutoConfigSupported("claude-code") || !AgentAutoConfigSupported("kimi-code") {
-		t.Fatalf("codex, claude-code and kimi-code should support auto config")
+	if !AgentAutoConfigSupported("codex") || !AgentAutoConfigSupported("claude-code") || !AgentAutoConfigSupported("kimi-code") || !AgentAutoConfigSupported("gemini-cli") {
+		t.Fatalf("codex, claude-code, kimi-code and gemini-cli should support auto config")
 	}
 	if AgentAutoConfigSupported("zcode") || AgentAutoConfigSupported("workbuddy") {
 		t.Fatalf("zcode/workbuddy should not support auto config yet")
 	}
+}
+
+func TestPatchGeminiEnvPreservesUserLinesAndReplacesOwnedKeys(t *testing.T) {
+	content := "# my gemini notes\r\nexport GEMINI_API_KEY=old-key\r\nGEMINI_SANDBOX=docker\r\nGOOGLE_GEMINI_BASE_URL=https://old.example\r\nGOOGLE_GENAI_USE_VERTEXAI=true\r\nGEMINI_MODEL=old-model\r\n"
+	got := patchGeminiEnv(content, "sk-new", "http://127.0.0.1:18777", "route-default")
+	for _, want := range []string{
+		"# my gemini notes\r\n",
+		"GEMINI_SANDBOX=docker",
+		"GOOGLE_GEMINI_BASE_URL=http://127.0.0.1:18777",
+		"GEMINI_API_KEY=sk-new",
+		"GEMINI_MODEL=route-default",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("Gemini .env missing %q:\n%s", want, got)
+		}
+	}
+	for _, gone := range []string{"old-key", "https://old.example", "old-model", "GOOGLE_GENAI_USE_VERTEXAI"} {
+		if strings.Contains(got, gone) {
+			t.Fatalf("Gemini .env should not contain %q:\n%s", gone, got)
+		}
+	}
+	if !strings.Contains(got, "export GEMINI_API_KEY=sk-new") {
+		t.Fatalf("export prefix should be preserved:\n%s", got)
+	}
+	if !strings.Contains(got, "\r\n") {
+		t.Fatalf("CRLF must be preserved:\n%q", got)
+	}
+}
+
+func TestPatchGeminiEnvKeepsModelWhenNoSelection(t *testing.T) {
+	got := patchGeminiEnv("GEMINI_API_KEY=old\nGEMINI_MODEL=user-model\n", "sk-new", "http://127.0.0.1:18777", "")
+	if !strings.Contains(got, "GEMINI_MODEL=user-model") {
+		t.Fatalf("unselected model must be preserved:\n%s", got)
+	}
+	if strings.Contains(got, "old") || !strings.Contains(got, "GEMINI_API_KEY=sk-new") {
+		t.Fatalf("owned key must be replaced:\n%s", got)
+	}
+}
+
+func TestMergeGeminiSettingsPreservesOtherFields(t *testing.T) {
+	content := `{"theme":"dark","security":{"auth":{"selectedType":"oauth-personal","useExternal":true},"other":1},"model":{"name":"old-model","compressionThreshold":0.5},"mcpServers":{"x":{"command":"y"}}}`
+	got, err := mergeGeminiSettings(content, "route-default")
+	if err != nil {
+		t.Fatalf("merge: %v", err)
+	}
+	var result map[string]any
+	if err := json.Unmarshal([]byte(got), &result); err != nil {
+		t.Fatal(err)
+	}
+	security := result["security"].(map[string]any)
+	auth := security["auth"].(map[string]any)
+	if auth["selectedType"] != "gemini-api-key" || auth["useExternal"] != true {
+		t.Fatalf("auth fields not merged correctly: %#v", auth)
+	}
+	model := result["model"].(map[string]any)
+	if model["name"] != "route-default" || model["compressionThreshold"] != 0.5 {
+		t.Fatalf("model fields not merged correctly: %#v", model)
+	}
+	for _, want := range []string{`"theme": "dark"`, `"mcpServers"`, `"other": 1`} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("unowned fields missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestAgentAutoConfigPrepareGeminiCLI(t *testing.T) {
+	setTestGateway()
+	dir := setTestGeminiHome(t)
+	keyID := seedAutoConfigKey(t)
+	seedClaudeModelGroups(t)
+	envPath := filepath.Join(dir, ".env")
+	settingsPath := filepath.Join(dir, "settings.json")
+	originalEnv := "# keep\nGEMINI_SANDBOX=docker\nGEMINI_API_KEY=old\n"
+	originalSettings := `{"theme":"dark","security":{"auth":{"selectedType":"oauth-personal"}},"mcpServers":{"x":{"command":"y"}}}`
+	if err := os.WriteFile(envPath, []byte(originalEnv), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(settingsPath, []byte(originalSettings), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	fileKey, content, files, err := AgentAutoConfigPrepareFiles(model.AgentAutoConfigRequest{
+		Agent: "gemini-cli", APIKeyID: keyID, GeminiModelGroupID: 1999001,
+	}, context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fileKey != "env" || len(files) != 2 {
+		t.Fatalf("unexpected Gemini auto config result: key=%q files=%#v", fileKey, files)
+	}
+	if !strings.Contains(content, "GEMINI_API_KEY=sk-auto-test") ||
+		!strings.Contains(content, "GOOGLE_GEMINI_BASE_URL=http://127.0.0.1:18777") ||
+		!strings.Contains(content, "GEMINI_MODEL=route-default") {
+		t.Fatalf("Gemini .env content is incomplete:\n%s", content)
+	}
+	if strings.Contains(content, "old") || !strings.Contains(content, "GEMINI_SANDBOX=docker") || !strings.Contains(content, "# keep") {
+		t.Fatalf("Gemini .env user content not preserved:\n%s", content)
+	}
+	var settings map[string]any
+	for _, file := range files {
+		if file.FileKey == "settings" {
+			if err := json.Unmarshal([]byte(file.Content), &settings); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	auth := settings["security"].(map[string]any)["auth"].(map[string]any)
+	if auth["selectedType"] != "gemini-api-key" {
+		t.Fatalf("selectedType not set: %#v", auth)
+	}
+	if settings["model"].(map[string]any)["name"] != "route-default" {
+		t.Fatalf("model.name not set: %#v", settings["model"])
+	}
+	if settings["mcpServers"] == nil {
+		t.Fatal("unowned settings must be preserved")
+	}
+	// Preparing must not write the files.
+	if disk, _ := os.ReadFile(envPath); string(disk) != originalEnv {
+		t.Fatal("preparing Gemini config must not write .env")
+	}
+	if disk, _ := os.ReadFile(settingsPath); string(disk) != originalSettings {
+		t.Fatal("preparing Gemini config must not write settings.json")
+	}
+	// Both generated files must pass the normal save pipeline.
+	for _, file := range files {
+		views, err := AgentConfigList("gemini-cli")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var base int64
+		for _, view := range views {
+			if view.Key == file.FileKey {
+				base = view.ModifiedAt
+			}
+		}
+		if err := AgentConfigSave("gemini-cli", []AgentConfigSaveInput{{Key: file.FileKey, Content: file.Content, BaseModifiedAt: base}}); err != nil {
+			t.Fatalf("save %s: %v", file.FileKey, err)
+		}
+	}
+	savedSettings, _ := os.ReadFile(settingsPath)
+	if !strings.Contains(string(savedSettings), `"selectedType": "gemini-api-key"`) {
+		t.Fatalf("settings.json was not saved correctly:\n%s", savedSettings)
+	}
+}
+
+func setTestGeminiHome(t *testing.T) string {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	dir := filepath.Join(home, ".gemini")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	return dir
 }
 
 func TestAgentAutoConfigApplyCodex(t *testing.T) {

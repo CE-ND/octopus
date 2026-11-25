@@ -98,13 +98,25 @@ function ensureCommand(command, versionArgs) {
   }
 }
 
+function copyDirectory(source, destination) {
+  const stat = fs.statSync(source);
+  if (stat.isDirectory()) {
+    fs.mkdirSync(destination, { recursive: true });
+    for (const entry of fs.readdirSync(source, { withFileTypes: true })) {
+      copyDirectory(path.join(source, entry.name), path.join(destination, entry.name));
+    }
+    return;
+  }
+  fs.copyFileSync(source, destination);
+}
+
 function copyFrontendOutput() {
   if (!fs.existsSync(webOutDir)) {
     throw new Error(`frontend output not found: ${webOutDir}`);
   }
 
   fs.rmSync(staticOutDir, { recursive: true, force: true });
-  fs.cpSync(webOutDir, staticOutDir, { recursive: true });
+  copyDirectory(webOutDir, staticOutDir);
 }
 
 function buildFrontend(gitVersion) {

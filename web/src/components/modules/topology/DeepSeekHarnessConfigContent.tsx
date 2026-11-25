@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useId, useRef, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import { useTranslations } from 'next-intl';
-import { Check, ChevronDown, FileCode2, KeyRound, LoaderCircle, Plus, SlidersHorizontal } from 'lucide-react';
+import { Check, FileCode2, KeyRound, LoaderCircle, Plus, SlidersHorizontal } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsList, TabsTrigger } from '@/components/animate-ui/components/animate/tabs';
@@ -38,7 +38,6 @@ export function DeepSeekHarnessConfigContent() {
     const instanceId = useId();
     const quickTabRef = useRef<HTMLButtonElement>(null);
     const fileTabRef = useRef<HTMLButtonElement>(null);
-    const advancedRef = useRef<HTMLDivElement>(null);
     const configQuery = useAgentConfig('deepseek-harness', PROFILE);
     const keysQuery = useAPIKeyList();
     const groupsQuery = useGroupList();
@@ -53,18 +52,8 @@ export function DeepSeekHarnessConfigContent() {
     const [apiOverride, setApiOverride] = useState<DshAPI>();
     const [reasoningOverride, setReasoningOverride] = useState<DshReasoningEffort>();
     const [createdKey, setCreatedKey] = useState<APIKey>();
-    const [advanced, setAdvanced] = useState(false);
     const [processing, setProcessing] = useState(false);
     const [conflict, setConflict] = useState(false);
-
-    useEffect(() => {
-        if (!advanced) return;
-        const frame = requestAnimationFrame(() => {
-            const panel = advancedRef.current?.closest<HTMLElement>('[data-slot="agent-config-panel"]');
-            panel?.scrollTo({ top: panel.scrollHeight, behavior: 'smooth' });
-        });
-        return () => cancelAnimationFrame(frame);
-    }, [advanced]);
 
     const file = configQuery.data?.files.find(item => item.key === 'profile');
     const state = configQuery.data?.dsh;
@@ -220,9 +209,12 @@ export function DeepSeekHarnessConfigContent() {
                                 {!groupsQuery.isLoading && groups.length === 0 && <p className="text-xs text-muted-foreground">{t('dshConfig.noGroups')}</p>}
                                 {pendingCredential?.reasoning_reset && <p className="text-xs text-muted-foreground">{t('dshConfig.reasoningReset')}</p>}
                             </section>
-                            <section className="border-t border-border/60 pt-3">
-                                <button type="button" aria-expanded={advanced} aria-controls={`${instanceId}-advanced`} onClick={() => setAdvanced(value => !value)} className="flex w-full items-center justify-between gap-3 rounded-lg py-2 text-xs text-muted-foreground hover:text-foreground"><span>{t('dshConfig.advanced')}</span><ChevronDown className={`size-4 transition-transform ${advanced ? 'rotate-180' : ''}`} /></button>
-                                <div ref={advancedRef} id={`${instanceId}-advanced`} hidden={!advanced} className="space-y-1.5 pt-2"><label htmlFor={`${instanceId}-api`} className="text-xs text-muted-foreground">{t('dshConfig.protocol')}</label><Select value={api} onValueChange={next => { if (APIS.some(item => item.value === next)) setApiOverride(next as DshAPI); }} disabled={busy}><SelectTrigger id={`${instanceId}-api`} className="w-full rounded-xl bg-background shadow-none"><SelectValue /></SelectTrigger><SelectContent className="z-[70] rounded-xl">{APIS.map(item => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent></Select></div>
+                            <section className="space-y-3 border-t border-border/60 pt-4">
+                                <h3 className="text-sm font-medium">{t('dshConfig.advanced')}</h3>
+                                <div className="space-y-1.5">
+                                    <label htmlFor={`${instanceId}-api`} className="text-xs text-muted-foreground">{t('dshConfig.protocol')}</label>
+                                    <Select value={api} onValueChange={next => { if (APIS.some(item => item.value === next)) setApiOverride(next as DshAPI); }} disabled={busy}><SelectTrigger id={`${instanceId}-api`} className="w-full rounded-xl bg-background shadow-none"><SelectValue /></SelectTrigger><SelectContent className="z-[70] rounded-xl">{APIS.map(item => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent></Select>
+                                </div>
                             </section>
                         </AgentConfigPanel>
                         <AgentConfigPanel value="file" scrollable={false} id={`${instanceId}-file-panel`} aria-labelledby={`${instanceId}-file-tab`} className="flex flex-col gap-3 pb-1">

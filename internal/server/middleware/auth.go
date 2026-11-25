@@ -32,17 +32,19 @@ func Auth() gin.HandlerFunc {
 }
 
 func APIKeyAuth() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		var apiKey string
-		var requestType string
+	return apiKeyAuth(false)
+}
 
-		if key := c.Request.Header.Get("x-api-key"); key != "" {
-			apiKey = key
-			requestType = "anthropic"
-		} else if auth := c.Request.Header.Get("Authorization"); auth != "" {
-			apiKey = strings.TrimPrefix(auth, "Bearer ")
-			requestType = "openai"
-		}
+// APIKeyAuthGemini accepts the credential placement used by the Gemini native
+// protocol: x-goog-api-key (Gemini CLI / @google/genai), Authorization Bearer
+// (curl and compatible clients), or the legacy ?key= query parameter.
+func APIKeyAuthGemini() gin.HandlerFunc {
+	return apiKeyAuth(true)
+}
+
+func apiKeyAuth(allowGeminiKey bool) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		apiKey, requestType := resolveAPIKey(c, allowGeminiKey)
 
 		if apiKey == "" {
 			resp.APIKeyMissing(c)
@@ -91,4 +93,24 @@ func APIKeyAuth() gin.HandlerFunc {
 		c.Set("api_key_id", apiKeyObj.ID)
 		c.Next()
 	}
+}
+
+func resolveAPIKey(c *gin.Context, allowGeminiKey bool) (string, string) {
+	if key := c.Request.Header.Get("x-api-key"); key != "" {
+		return key, "anthropic"
+	}
+	if allowGeminiKey {
+		if key := strings.TrimSpace(c.Request.Header.Get("x-goog-api-key")); key != "" {
+			return key, "gemini"
+		}
+	}
+	if auth := c.Request.Header.Get("Authorization"); auth != "" {
+		return strings.TrimPrefix(auth, "Bearer "), "openai"
+	}
+	if allowGeminiKey {
+		if key := strings.TrimSpace(c.Query("key")); key != "" {
+			return key, "gemini"
+		}
+	}
+	return "", ""
 }

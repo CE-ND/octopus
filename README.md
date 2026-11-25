@@ -403,6 +403,37 @@ Edit `~/.codex/auth.json`
 }
 ```
 
+### Gemini CLI / Antigravity CLI
+
+Octopus also exposes the Gemini native ingress API:
+
+```text
+POST /v1beta/models/{model}:generateContent
+POST /v1beta/models/{model}:streamGenerateContent?alt=sse
+GET  /v1beta/models
+```
+
+Gemini CLI setup:
+
+```powershell
+$env:GOOGLE_GEMINI_BASE_URL = "http://127.0.0.1:18777"
+$env:GEMINI_API_KEY = "sk-octopus-P48ROljwJmWBYVARjwQM8Nkiezlg7WOrXXOWDYY8TI5p9Mzg"
+$env:GEMINI_MODEL = "gemini-4-neon-c-ep" # Use the correct group name
+gemini -p "Hello"
+```
+
+The Gemini CLI card on the topology page also supports auto-configuration: choose an Octopus key and model group to generate patches for `~/.gemini/.env` and `~/.gemini/settings.json`, preserving other environment variables and settings. It takes effect after you review and save.
+
+For Antigravity CLI (`agy`), set the following in `~/.gemini/antigravity-cli/settings.json`:
+
+```json
+{
+  "modelProvider": "gemini"
+}
+```
+
+and provide `GEMINI_API_KEY` and `GOOGLE_GEMINI_BASE_URL` through the environment. Use the Octopus root URL without `/v1` or `/v1beta`; the client appends `/v1beta/models/...` itself.
+
 ---
 
 ## 🔀 Differences from Upstream

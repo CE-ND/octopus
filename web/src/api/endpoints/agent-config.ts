@@ -56,9 +56,16 @@ export interface DshCredentialSave {
     credential_revision?: string;
 }
 
+/** 自动配置写入的单个文件；Gemini CLI 会同时返回 .env 和 settings.json。 */
+export interface AgentAutoConfigFile {
+    file_key: string;
+    content: string;
+}
+
 export interface AgentAutoConfigResponse {
     file_key: string;
     content: string;
+    files?: AgentAutoConfigFile[];
     dsh?: DshPreparedConfig;
 }
 
@@ -84,7 +91,10 @@ export interface AgentAutoConfigInput {
     model_groups?: ClaudeCodeModelGroups;
     codex_model_group_id?: number;
     kimi_code_model_group_id?: number;
+    gemini_model_group_id?: number;
     current_content?: string;
+    /** 多文件 agent 的编辑器草稿，按文件 key 索引（Gemini CLI: env / settings）。 */
+    current_contents?: Record<string, string>;
     dsh?: { profile: string; model_group_id: number; api?: DshAPI; reasoning_effort?: DshReasoningEffort };
 }
 

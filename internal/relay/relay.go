@@ -59,9 +59,21 @@ func writeSSEHeartbeat(writer streamHeartbeatWriter) error {
 	return nil
 }
 
+// HandlerOptions carries protocol-level values that live outside the request
+// body. Gemini native requests put the model and streaming method in the URL
+// path, so the route handler must supply them before validation.
+type HandlerOptions struct {
+	ModelOverride  string
+	StreamOverride *bool
+}
+
 func Handler(inboundType inbound.InboundType, c *gin.Context) {
+	HandlerWithOptions(inboundType, c, HandlerOptions{})
+}
+
+func HandlerWithOptions(inboundType inbound.InboundType, c *gin.Context, options HandlerOptions) {
 	// 解析请求
-	rawBody, internalRequest, inAdapter, err := parseRequest(inboundType, c)
+	rawBody, internalRequest, inAdapter, err := parseRequest(inboundType, c, options)
 	if err != nil {
 		return
 	}
@@ -566,7 +578,7 @@ func (ra *relayAttempt) attempt() attemptResult {
 
 // parseRequest 解析并验证入站请求
 // 返回值中的 rawBody 为客户端原始请求字节，供同格式直通路径重用。
-func parseRequest(inboundType inbound.InboundType, c *gin.Context) ([]byte, *model.InternalLLMRequest, model.Inbound, error) {
+func parseRequest(inboundType inbound.InboundType, c *gin.Context, options HandlerOptions) ([]byte, *model.InternalLLMRequest, model.Inbound, error) {
 	body, err := io.ReadAll(c.Request.Body)
 	if err != nil {
 		resp.Error(c, http.StatusInternalServerError, err.Error())
@@ -581,6 +593,13 @@ func parseRequest(inboundType inbound.InboundType, c *gin.Context) ([]byte, *mod
 		}
 		resp.Error(c, http.StatusBadRequest, err.Error())
 		return nil, nil, nil, err
+	}
+
+	if options.ModelOverride != "" {
+		internalRequest.Model = options.ModelOverride
+	}
+	if options.StreamOverride != nil {
+		internalRequest.Stream = options.StreamOverride
 	}
 
 	// Pass through the original query parameters

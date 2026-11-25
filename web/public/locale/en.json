@@ -238,6 +238,33 @@
             "saveHint": "Format is validated and the original file is backed up on save.",
             "save": "Save configuration"
         },
+        "geminiCliConfig": {
+            "description": "Choose an Octopus key and model group, then save to your local Gemini CLI .env and settings.json.",
+            "views": "Gemini CLI configuration views",
+            "quickTab": "Quick setup",
+            "fileTab": "Config files",
+            "connection": "Connect to Octopus",
+            "connectionHint": "Saving writes GOOGLE_GEMINI_BASE_URL, GEMINI_API_KEY, and switches Gemini CLI to API key authentication.",
+            "apiKey": "API key",
+            "disabledKey": "(disabled)",
+            "selectKeyError": "Select an enabled API key",
+            "keysFailed": "Unable to load API keys. Please try again.",
+            "models": "Model selection",
+            "modelsHint": "Use a group for GEMINI_MODEL and the settings.json default model; leave empty to keep the current model.",
+            "defaultModel": "Default model group",
+            "keepModels": "Keep current model configuration",
+            "currentModel": "Current: {model}",
+            "groupsFailed": "Unable to load groups. Please try again.",
+            "noGroups": "No model groups yet. Add one on the Groups page first.",
+            "restrictedModels": "Only groups allowed by the selected key are available.",
+            "envHint": "A patch will be prepared for ~/.gemini/.env and ~/.gemini/settings.json, then saved together.",
+            "selectFile": "Choose a config file",
+            "sourceLabel": "Gemini CLI {file} config",
+            "fileCount": "{count} files",
+            "conflict": "A file changed externally. Your drafts are preserved. Reload the latest files before applying your changes.",
+            "saveHint": "Save .env and settings.json together, with format validation and backups.",
+            "save": "Save configuration"
+        },
         "empty": {
             "title": "No agent calls detected yet",
             "hint": "Point Claude Code, Codex or other agents at this gateway ({url}); the live call topology will show up here once they start calling"

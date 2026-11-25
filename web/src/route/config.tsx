@@ -26,8 +26,8 @@ const Plugin_Module = lazyWithPreload(() => import('@/components/modules/plugin'
 
 export const ROUTES: RouteConfig[] = [
     { id: 'home', label: 'Home', icon: Home, component: Home_Module },
-    { id: 'topology', label: 'Topology', icon: Waypoints, component: Topology_Module },
     { id: 'site', label: 'Site', icon: Globe2, component: Site_Module },
+    { id: 'topology', label: 'Topology', icon: Waypoints, component: Topology_Module },
     { id: 'plugin', label: 'Plugin', icon: Puzzle, component: Plugin_Module },
     { id: 'channel', label: 'Channel', icon: Radio, component: Channel_Module },
     { id: 'group', label: 'Group', icon: FolderTree, component: Group_Module },

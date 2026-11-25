@@ -164,6 +164,13 @@ type GeminiFunctionDeclaration struct {
 	Name        string                 `json:"name"`
 	Description string                 `json:"description,omitempty"`
 	Parameters  map[string]interface{} `json:"parameters,omitempty"`
+
+	// ParametersJsonSchema is the newer Gemini field used by Gemini CLI and
+	// recent @google/genai SDKs. It carries an ordinary JSON Schema object
+	// (lower-case type names) rather than Gemini's legacy OpenAPI-style
+	// `parameters` schema. At least one of Parameters / ParametersJsonSchema
+	// is populated by clients.
+	ParametersJsonSchema map[string]interface{} `json:"parametersJsonSchema,omitempty"`
 }
 
 // GeminiCodeExecution represents code execution capability
@@ -171,15 +178,16 @@ type GeminiCodeExecution struct{}
 
 // GeminiGenerationConfig controls generation parameters
 type GeminiGenerationConfig struct {
-	Temperature        *float64      `json:"temperature,omitempty"`
-	TopP               *float64      `json:"topP,omitempty"`
-	TopK               *int          `json:"topK,omitempty"`
-	CandidateCount     int           `json:"candidateCount,omitempty"`
-	MaxOutputTokens    int           `json:"maxOutputTokens,omitempty"`
-	StopSequences      []string      `json:"stopSequences,omitempty"`
-	ResponseMimeType   string        `json:"responseMimeType,omitempty"`
-	ResponseSchema     *GeminiSchema `json:"responseSchema,omitempty"`
-	ResponseModalities []string      `json:"responseModalities,omitempty"`
+	Temperature        *float64        `json:"temperature,omitempty"`
+	TopP               *float64        `json:"topP,omitempty"`
+	TopK               *int            `json:"topK,omitempty"`
+	CandidateCount     int             `json:"candidateCount,omitempty"`
+	MaxOutputTokens    int             `json:"maxOutputTokens,omitempty"`
+	StopSequences      []string        `json:"stopSequences,omitempty"`
+	ResponseMimeType   string          `json:"responseMimeType,omitempty"`
+	ResponseSchema     *GeminiSchema   `json:"responseSchema,omitempty"`
+	ResponseJsonSchema json.RawMessage `json:"responseJsonSchema,omitempty"`
+	ResponseModalities []string        `json:"responseModalities,omitempty"`
 
 	// PresencePenalty / FrequencyPenalty mirror the OpenAI knobs. Gemini
 	// accepts them since 1.5 on a [-2.0, 2.0] range; left unset the upstream

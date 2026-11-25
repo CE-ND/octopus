@@ -165,6 +165,17 @@ var AgentDefinitions = []AgentDefinition{
 		Name:      "Gemini CLI",
 		Dirs:      func() []string { return []string{geminiHomeDir()} },
 		UAMatches: []string{"gemini-cli", "geminicli", "gemini/"},
+		ConfigFiles: func() []AgentConfigFile {
+			home := geminiHomeDir()
+			if home == "" {
+				return nil
+			}
+			return []AgentConfigFile{
+				{Key: "settings", Path: filepath.Join(home, "settings.json"), Language: "json"},
+				{Key: "env", Path: filepath.Join(home, ".env"), Language: "dotenv", Sensitive: true},
+			}
+		},
+		AutoConfigFileKey: "env",
 	},
 }
 

@@ -38,6 +38,7 @@ func init() {
 var hopByHopHeaders = map[string]bool{
 	"authorization":       true,
 	"x-api-key":           true,
+	"x-goog-api-key":      true,
 	"connection":          true,
 	"keep-alive":          true,
 	"proxy-authenticate":  true,

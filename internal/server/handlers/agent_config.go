@@ -125,10 +125,10 @@ func autoConfigAgent(c *gin.Context) {
 		resp.Success(c, prepared)
 		return
 	}
-	fileKey, content, err := op.AgentAutoConfigPrepare(req, c.Request.Context())
+	fileKey, content, files, err := op.AgentAutoConfigPrepareFiles(req, c.Request.Context())
 	if err != nil {
 		resp.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	resp.Success(c, model.AgentAutoConfigResponse{FileKey: fileKey, Content: content})
+	resp.Success(c, model.AgentAutoConfigResponse{FileKey: fileKey, Content: content, Files: files})
 }

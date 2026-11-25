@@ -60,6 +60,8 @@ func inboundProtocolName(inboundType inbound.InboundType) string {
 		return "anthropic"
 	case inbound.InboundTypeOpenAIEmbedding:
 		return "embedding"
+	case inbound.InboundTypeGemini:
+		return "gemini"
 	default:
 		return "unknown"
 	}

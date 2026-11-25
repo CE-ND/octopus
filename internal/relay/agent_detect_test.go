@@ -139,6 +139,7 @@ func TestInboundProtocolName(t *testing.T) {
 		{inbound.InboundTypeOpenAIResponse, "openai-responses"},
 		{inbound.InboundTypeAnthropic, "anthropic"},
 		{inbound.InboundTypeOpenAIEmbedding, "embedding"},
+		{inbound.InboundTypeGemini, "gemini"},
 		{inbound.InboundType(99), "unknown"},
 	}
 	for _, tc := range cases {

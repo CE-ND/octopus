@@ -20,6 +20,7 @@ import { AgentConfigHeader } from './AgentConfigHeader';
 import { ClaudeCodeConfigContent } from './ClaudeCodeConfigContent';
 import { CodexConfigContent } from './CodexConfigContent';
 import { DeepSeekHarnessConfigContent } from './DeepSeekHarnessConfigContent';
+import { GeminiCliConfigContent } from './GeminiCliConfigContent';
 import { AgentModelGroupSelect, type AgentModelGroup } from './AgentModelGroupSelect';
 import { MorphingDialogContent, useMorphingDialog } from '@/components/ui/morphing-dialog';
 import { AgentConfigResizeProvider, useAgentConfigResizeState } from './AgentConfigResize';
@@ -67,13 +68,18 @@ export function AgentConfigDialogPanel({ agent, transition }: { agent: string; t
     const content = useMemo(() => <AgentConfigContent agent={agent} />, [agent]);
     const resizedOpen = !!size && isOpen;
     const layoutTransition = useMemo(() => resizedOpen ? { ...transition, layout: { duration: 0 } } : transition, [resizedOpen, transition]);
+    // DSH 的快速配置包含连接、模型和高级设置三块，默认给一个更大的 4:3 画布，
+    // 避免高级设置被挤到滚动区域之外。窗口过矮时按 4:3 同步收窄宽度。
+    const dshDefaultStyle = agent === 'deepseek-harness'
+        ? { width: 'min(60rem, calc(100vw - 2rem), calc(133.333vh - 2.6667rem))', aspectRatio: '4 / 3' }
+        : undefined;
 
     return (
         <AgentConfigResizeProvider value={controls}>
             <MotionConfig transition={layoutTransition}>
                 <MorphingDialogContent
                     className="relative flex max-h-[calc(100vh-2rem)] w-[min(48rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-3xl bg-card px-6 py-5 text-card-foreground shadow-2xl"
-                    style={size ? { width: size.width, height: size.height, maxWidth: 'min(1040px, calc(100vw - 2rem))' } : undefined}
+                    style={size ? { width: size.width, height: size.height, maxWidth: 'min(1040px, calc(100vw - 2rem))' } : dshDefaultStyle}
                     transition={layoutTransition}
                 >
                     {/* 调整尺寸只改变布局，正文仍参与父级形变的缩放补偿。 */}
@@ -97,6 +103,7 @@ export function AgentConfigContent({ agent }: { agent: string }) {
     if (agent === 'claude-code') return <ClaudeCodeConfigContent />;
     if (agent === 'codex') return <CodexConfigContent />;
     if (agent === 'deepseek-harness') return <DeepSeekHarnessConfigContent />;
+    if (agent === 'gemini-cli') return <GeminiCliConfigContent />;
     return <AgentConfigFileContent agent={agent} />;
 }
 
