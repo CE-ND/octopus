@@ -59,6 +59,59 @@ func TestBuildProjectedChannelBaseURL(t *testing.T) {
 	}
 }
 
+func TestResolveProjectedChannelBaseURLForGemini(t *testing.T) {
+	tests := []struct {
+		name     string
+		site     *model.Site
+		route    model.SiteModelRouteType
+		expected string
+	}{
+		{
+			name:     "bare gemini host stays bare",
+			site:     &model.Site{BaseURL: "https://anyrouter.top"},
+			route:    model.SiteModelRouteTypeGemini,
+			expected: "https://anyrouter.top",
+		},
+		{
+			name:     "openai v1 suffix is removed for gemini",
+			site:     &model.Site{BaseURL: "https://anyrouter.top/v1"},
+			route:    model.SiteModelRouteTypeGemini,
+			expected: "https://anyrouter.top",
+		},
+		{
+			name:     "explicit gemini version is preserved",
+			site:     &model.Site{BaseURL: "https://generativelanguage.googleapis.com/v1beta/"},
+			route:    model.SiteModelRouteTypeGemini,
+			expected: "https://generativelanguage.googleapis.com/v1beta",
+		},
+		{
+			name: "gemini route override also drops openai v1",
+			site: &model.Site{
+				BaseURL: "https://anyrouter.top",
+				RouteBaseURLs: []model.SiteRouteBaseURL{
+					{RouteType: model.SiteModelRouteTypeGemini, BaseURL: "https://gemini.example.com/v1"},
+				},
+			},
+			route:    model.SiteModelRouteTypeGemini,
+			expected: "https://gemini.example.com",
+		},
+		{
+			name:     "non-gemini route keeps generic v1 projection",
+			site:     &model.Site{BaseURL: "https://anyrouter.top"},
+			route:    model.SiteModelRouteTypeOpenAIChat,
+			expected: "https://anyrouter.top/v1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if actual := resolveProjectedChannelBaseURL(tt.site, tt.route); actual != tt.expected {
+				t.Fatalf("expected %q, got %q", tt.expected, actual)
+			}
+		})
+	}
+}
+
 func TestProjectAccountSplitsManagedChannelsByOutboundType(t *testing.T) {
 	ctx := setupProjectTestDB(t)
 	_, account := createProjectionFixture(t, ctx)
@@ -1102,8 +1155,12 @@ func assertProjectedChannel(t *testing.T, channelsByGroup map[string]model.Chann
 	if channel.Model != expectedModel {
 		t.Fatalf("expected channel %q model %q, got %q", groupKey, expectedModel, channel.Model)
 	}
-	if len(channel.BaseUrls) != 1 || channel.BaseUrls[0].URL != "https://example.com/v1" {
-		t.Fatalf("expected channel %q base URL to be projected with /v1 suffix, got %#v", groupKey, channel.BaseUrls)
+	expectedBaseURL := "https://example.com/v1"
+	if expectedType == outbound.OutboundTypeGemini {
+		expectedBaseURL = "https://example.com"
+	}
+	if len(channel.BaseUrls) != 1 || channel.BaseUrls[0].URL != expectedBaseURL {
+		t.Fatalf("expected channel %q base URL %q, got %#v", groupKey, expectedBaseURL, channel.BaseUrls)
 	}
 	if len(channel.Keys) != 2 {
 		t.Fatalf("expected channel %q to carry both projected keys, got %d", groupKey, len(channel.Keys))

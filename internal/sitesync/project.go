@@ -538,9 +538,41 @@ func kimiProjectedBaseURL(siteRecord *model.Site, baseURL string) string {
 // protocols under different path prefixes.
 func resolveProjectedChannelBaseURL(siteRecord *model.Site, routeType model.SiteModelRouteType) string {
 	if override, ok := siteRecord.ResolveRouteBaseURL(routeType); ok {
+		if routeType == model.SiteModelRouteTypeGemini {
+			return normalizeGeminiBaseURL(override)
+		}
 		return override
 	}
+	if routeType == model.SiteModelRouteTypeGemini {
+		if siteRecord == nil {
+			return ""
+		}
+		return normalizeGeminiBaseURL(siteRecord.BaseURL)
+	}
 	return buildProjectedChannelBaseURL(siteRecord)
+}
+
+// normalizeGeminiBaseURL removes the OpenAI-style `/v1` suffix from a site
+// base URL. The generic site projection appends `/v1` for OpenAI-compatible
+// endpoints; using that URL as the Gemini channel base makes the Gemini
+// outbound adapter generate `/v1/models/...`, while native Gemini endpoints
+// are served under `/v1beta/models/...`. Leave an explicitly configured
+// Gemini version path alone.
+func normalizeGeminiBaseURL(raw string) string {
+	baseURL := strings.TrimRight(strings.TrimSpace(raw), "/")
+	if baseURL == "" {
+		return ""
+	}
+	lower := strings.ToLower(baseURL)
+	for _, suffix := range []string{"/v1beta", "/v1beta2", "/v1alpha"} {
+		if strings.HasSuffix(lower, suffix) {
+			return baseURL
+		}
+	}
+	if strings.HasSuffix(lower, "/v1") {
+		return strings.TrimRight(baseURL[:len(baseURL)-3], "/")
+	}
+	return baseURL
 }
 
 // isUsableSiteToken reports whether a token can produce a projected channel
