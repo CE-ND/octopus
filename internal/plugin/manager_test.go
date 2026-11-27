@@ -15,6 +15,7 @@ import (
 	"github.com/bestruirui/octopus/internal/db"
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
+	"github.com/bestruirui/octopus/internal/transformer/outbound"
 )
 
 func TestApplyPluginReplacesPreservesState(t *testing.T) {
@@ -68,6 +69,117 @@ func TestApplyPluginReplacesPreservesState(t *testing.T) {
 	}
 	if migrated.PluginID != newID {
 		t.Fatalf("binding plugin ID = %q, want %q", migrated.PluginID, newID)
+	}
+}
+
+func TestManagerAdoptsOrphanPluginChannel(t *testing.T) {
+	nodePath, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is not installed")
+	}
+	root, err := os.MkdirTemp("", "octopus-plugin-orphan-test-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(root)
+	conf.AppConfig.Plugin.Enabled = true
+	conf.AppConfig.Plugin.NodePath = nodePath
+	if err := db.InitDB("sqlite", filepath.Join(root, "data.db"), false); err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	defer db.Close()
+	if err := op.InitCache(); err != nil {
+		t.Fatalf("init cache: %v", err)
+	}
+	t.Setenv("FAKE_UPSTREAM", "http://127.0.0.1:1/v1")
+	pluginDir, err := filepath.Abs(filepath.Join("testdata", "fake"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := &Manager{dataDir: filepath.Join(root, "plugins"), enabled: true, nodePath: nodePath}
+	defer m.stopHostLocked()
+
+	orphan := model.Channel{
+		Name:      "Plugin: Fake Plugin",
+		Type:      outbound.OutboundTypeOpenAIChat,
+		Enabled:   false,
+		BaseUrls:  []model.BaseUrl{{URL: "http://127.0.0.1:1/old"}},
+		Model:     "old-model",
+		ProxyMode: model.ProxyUsageModeDirect,
+		Keys:      []model.ChannelKey{{Enabled: true, ChannelKey: "old-key", Remark: "old"}},
+	}
+	if err := op.ChannelCreate(&orphan, context.Background()); err != nil {
+		t.Fatalf("create orphan channel: %v", err)
+	}
+	if _, err := m.Install(context.Background(), pluginDir); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	if _, err := m.StartLogin(context.Background(), AuthStartRequest{
+		PluginID:   "@octopus/fake-plugin",
+		ProviderID: "fake",
+		Method:     0,
+		APIKey:     "sk-test",
+	}); err != nil {
+		t.Fatalf("start login: %v", err)
+	}
+	if _, err := m.Providers(context.Background(), false); err != nil {
+		t.Fatalf("sync providers: %v", err)
+	}
+	channels, err := op.ChannelList(context.Background())
+	if err != nil || len(channels) != 1 {
+		t.Fatalf("channels after adoption = %+v err=%v", channels, err)
+	}
+	if channels[0].ID != orphan.ID {
+		t.Fatalf("adopted channel id = %d, want %d", channels[0].ID, orphan.ID)
+	}
+	if channels[0].BaseUrls[0].URL == orphan.BaseUrls[0].URL || channels[0].Model != "fake-model" {
+		t.Fatalf("orphan channel was not refreshed: %+v", channels[0])
+	}
+	if _, managed, err := op.PluginChannelBindingGetByChannelID(orphan.ID, context.Background()); err != nil || !managed {
+		t.Fatalf("orphan binding not created: managed=%v err=%v", managed, err)
+	}
+}
+
+func TestManagerRemoveCleansOrphanPluginChannels(t *testing.T) {
+	root, err := os.MkdirTemp("", "octopus-plugin-remove-orphan-test-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(root)
+	if err := db.InitDB("sqlite", filepath.Join(root, "data.db"), false); err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	defer db.Close()
+	if err := op.InitCache(); err != nil {
+		t.Fatalf("init cache: %v", err)
+	}
+	orphan := model.Channel{
+		Name:      "Plugin: Fake Plugin",
+		Type:      outbound.OutboundTypeOpenAIChat,
+		Enabled:   true,
+		BaseUrls:  []model.BaseUrl{{URL: "http://127.0.0.1:1/old"}},
+		Model:     "fake-model",
+		ProxyMode: model.ProxyUsageModeDirect,
+	}
+	if err := op.ChannelCreate(&orphan, context.Background()); err != nil {
+		t.Fatalf("create orphan channel: %v", err)
+	}
+	m := &Manager{
+		dataDir: filepath.Join(root, "plugins"),
+		installed: installedFile{Plugins: []InstalledPlugin{{
+			ID:          "@octopus/fake-plugin",
+			DisplayName: "Fake Plugin",
+		}}},
+	}
+	if err := os.MkdirAll(m.dataDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Remove(context.Background(), "@octopus/fake-plugin"); err != nil {
+		t.Fatalf("remove plugin: %v", err)
+	}
+	channels, err := op.ChannelList(context.Background())
+	if err != nil || len(channels) != 0 {
+		t.Fatalf("orphan channel remained after remove: %+v err=%v", channels, err)
 	}
 }
 

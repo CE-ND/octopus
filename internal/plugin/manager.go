@@ -411,6 +411,16 @@ func (m *Manager) Remove(ctx context.Context, id string) error {
 	if removed == nil {
 		return fmt.Errorf("plugin not found: %s", id)
 	}
+	removedProviderNames := []string{}
+	if m.host != nil && m.host.Running() {
+		if providers, err := m.host.Providers(ctx, false); err == nil {
+			for _, provider := range providers {
+				if provider.PluginID == id {
+					removedProviderNames = append(removedProviderNames, provider.Name)
+				}
+			}
+		}
+	}
 	m.installed.Plugins = keep
 	if err := m.saveInstalledLocked(); err != nil {
 		return err
@@ -419,6 +429,7 @@ func (m *Manager) Remove(ctx context.Context, id string) error {
 	if removed.Dir != "" && pathWithin(m.dataDir, removed.Dir) {
 		_ = os.RemoveAll(removed.Dir)
 	}
+	m.cleanupOrphanPluginChannelsLocked(ctx, *removed, removedProviderNames)
 	if err := m.restartHostLocked(ctx); err != nil {
 		m.hostErr = err.Error()
 	}
@@ -544,6 +555,110 @@ func (m *Manager) Logs(n int) ([]string, error) {
 	return lines, nil
 }
 
+type pluginDesiredChannel struct {
+	key        string
+	name       string
+	channel    model.Channel
+	protocol   string
+	pluginID   string
+	providerID string
+	routeID    string
+}
+
+// adoptOrphanPluginChannel 接管没有 binding 的同名旧插件渠道。
+// 旧版本卸载插件时可能只删掉 binding 而留下渠道；重装时直接 ChannelCreate
+// 会撞 channels.name 唯一约束，导致插件渠道永远无法恢复。
+func (m *Manager) adoptOrphanPluginChannel(ctx context.Context, desired pluginDesiredChannel) (bool, error) {
+	existing, err := op.ChannelGetByName(desired.name, ctx)
+	if err != nil || existing == nil {
+		return false, nil
+	}
+	if !strings.HasPrefix(existing.Name, "Plugin: ") {
+		return false, nil
+	}
+	if _, managed, err := op.PluginChannelBindingGetByChannelID(existing.ID, ctx); err != nil {
+		return false, err
+	} else if managed {
+		return false, nil
+	}
+	keysToDelete := make([]int, 0, len(existing.Keys))
+	for _, key := range existing.Keys {
+		if key.ID != 0 {
+			keysToDelete = append(keysToDelete, key.ID)
+		}
+	}
+	name := desired.name
+	outboundType := desired.channel.Type
+	enabled := desired.channel.Enabled
+	baseURLs := desired.channel.BaseUrls
+	modelNames := desired.channel.Model
+	if _, err := op.ChannelUpdate(&model.ChannelUpdateRequest{
+		ID:                 existing.ID,
+		Name:               &name,
+		Type:               &outboundType,
+		Enabled:            &enabled,
+		BaseUrls:           &baseURLs,
+		Model:              &modelNames,
+		KeysToDelete:       keysToDelete,
+		KeysToAdd:          []model.ChannelKeyAddRequest{{Enabled: true, ChannelKey: m.host.Token(), Remark: "plugin"}},
+		BypassManagedCheck: true,
+	}, ctx); err != nil {
+		return false, err
+	}
+	binding := model.PluginChannelBinding{
+		PluginID:   desired.pluginID,
+		ProviderID: desired.providerID,
+		RouteID:    desired.routeID,
+		Protocol:   desired.protocol,
+		ChannelID:  existing.ID,
+	}
+	if err := op.PluginChannelBindingSave(&binding, ctx); err != nil {
+		return false, err
+	}
+	log.Infof("plugin: adopted orphan channel %d (%s)", existing.ID, desired.name)
+	return true, nil
+}
+
+// cleanupOrphanPluginChannelsLocked 清理已卸载插件留下的无 binding 渠道。
+// bindings 是正常卸载路径的主依据；这里只处理旧版本遗留的同名孤儿渠道。
+func (m *Manager) cleanupOrphanPluginChannelsLocked(ctx context.Context, plugin InstalledPlugin, providerNames []string) {
+	channels, err := op.ChannelList(ctx)
+	if err != nil {
+		log.Warnf("plugin: list channels for orphan cleanup: %v", err)
+		return
+	}
+	prefixes := make([]string, 0, len(providerNames)+1)
+	if plugin.DisplayName != "" {
+		prefixes = append(prefixes, "Plugin: "+plugin.DisplayName)
+	}
+	for _, name := range providerNames {
+		if strings.TrimSpace(name) != "" {
+			prefixes = append(prefixes, "Plugin: "+name)
+		}
+	}
+	if len(prefixes) == 0 {
+		return
+	}
+	for _, channel := range channels {
+		matched := false
+		for _, prefix := range prefixes {
+			if strings.HasPrefix(channel.Name, prefix) {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			continue
+		}
+		if _, managed, err := op.PluginChannelBindingGetByChannelID(channel.ID, ctx); err != nil || managed {
+			continue
+		}
+		if err := op.ChannelDel(channel.ID, ctx); err != nil {
+			log.Warnf("plugin: delete orphan channel %d (%s): %v", channel.ID, channel.Name, err)
+		}
+	}
+}
+
 // syncChannelsLocked 根据插件 provider 路由创建/更新受管渠道。
 func (m *Manager) syncChannelsLocked(ctx context.Context) error {
 	providers := []ProviderInfo{}
@@ -554,16 +669,7 @@ func (m *Manager) syncChannelsLocked(ctx context.Context) error {
 			return err
 		}
 	}
-	type desired struct {
-		key        string
-		name       string
-		channel    model.Channel
-		protocol   string
-		pluginID   string
-		providerID string
-		routeID    string
-	}
-	desiredByKey := make(map[string]desired)
+	desiredByKey := make(map[string]pluginDesiredChannel)
 	for _, provider := range providers {
 		if !provider.LoggedIn || len(provider.Routes) == 0 {
 			continue
@@ -592,7 +698,7 @@ func (m *Manager) syncChannelsLocked(ctx context.Context) error {
 			baseURL := strings.TrimRight(m.host.BaseURL(), "/") + "/p/" +
 				url.PathEscape(route.ID) + "/v1"
 			key := provider.PluginID + "|" + provider.ProviderID + "|" + route.ID
-			desiredByKey[key] = desired{
+			desiredByKey[key] = pluginDesiredChannel{
 				key:  key,
 				name: name,
 				channel: model.Channel{
@@ -685,6 +791,9 @@ func (m *Manager) syncChannelsLocked(ctx context.Context) error {
 			Remark:     "plugin",
 		}}
 		if err := op.ChannelCreate(&payload, ctx); err != nil {
+			if adopted, adoptErr := m.adoptOrphanPluginChannel(ctx, d); adoptErr == nil && adopted {
+				continue
+			}
 			log.Warnf("plugin: create channel for %s: %v", key, err)
 			continue
 		}
