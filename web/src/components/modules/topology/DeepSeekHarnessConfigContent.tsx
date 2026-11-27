@@ -22,6 +22,7 @@ const APIS: { value: DshAPI; label: string }[] = [
     { value: 'openai-completions', label: 'OpenAI Chat Completions' },
     { value: 'openai-responses', label: 'OpenAI Responses' },
     { value: 'anthropic-messages', label: 'Anthropic Messages' },
+    { value: 'google-generative-ai', label: 'Google Generative AI (Gemini)' },
 ];
 const REASONING_EFFORTS: DshReasoningEffort[] = ['default', 'off', 'low', 'high', 'max'];
 type View = 'quick' | 'file';

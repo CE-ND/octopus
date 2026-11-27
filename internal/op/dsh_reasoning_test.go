@@ -10,7 +10,7 @@ import (
 )
 
 func TestDshReasoningLevelsPrepareSaveAndReload(t *testing.T) {
-	for _, api := range []string{"openai-completions", "openai-responses", "anthropic-messages"} {
+	for _, api := range []string{"openai-completions", "openai-responses", "anthropic-messages", "google-generative-ai"} {
 		for _, effort := range []string{"default", "off", "low", "high", "max"} {
 			t.Run(api+"/"+effort, func(t *testing.T) {
 				paths := dshTestHome(t)

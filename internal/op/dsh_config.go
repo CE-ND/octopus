@@ -174,7 +174,7 @@ func (p *dshProfile) provider(create bool) (*yaml.Node, error) {
 }
 
 func dshValidAPI(api string) bool {
-	return api == "openai-completions" || api == "openai-responses" || api == "anthropic-messages"
+	return api == "openai-completions" || api == "openai-responses" || api == "anthropic-messages" || api == "google-generative-ai"
 }
 
 func dshModels(provider *yaml.Node) (*yaml.Node, error) {
@@ -415,7 +415,14 @@ func DshAutoConfigPrepare(req model.AgentAutoConfigRequest, ctx context.Context)
 		return result, fmt.Errorf("DSH 暂不支持所选 API 协议")
 	}
 	baseURL := gatewayBaseURL()
-	if api != "anthropic-messages" {
+	switch api {
+	case "anthropic-messages":
+		// DSH 的 Anthropic Messages 适配器自行拼接 /v1/messages。
+	case "google-generative-ai":
+		// Gemini 原生端点使用 /v1beta，DSH 的 google-generative-ai API
+		// 要求 baseURL 已经包含 API 版本路径。
+		baseURL += "/v1beta"
+	default:
 		baseURL += "/v1"
 	}
 	dshSet(provider, "api", dshString(api))

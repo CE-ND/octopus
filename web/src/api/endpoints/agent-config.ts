@@ -23,7 +23,7 @@ export interface AgentConfigListResponse {
     dsh?: DshConfigState;
 }
 
-export type DshAPI = 'openai-completions' | 'openai-responses' | 'anthropic-messages';
+export type DshAPI = 'openai-completions' | 'openai-responses' | 'anthropic-messages' | 'google-generative-ai';
 export type DshReasoningEffort = 'default' | 'off' | 'low' | 'high' | 'max';
 
 export interface DshConfigState {

@@ -222,13 +222,17 @@ func TestDshPrepareAndSavePreservesOtherProvidersAndCredentials(t *testing.T) {
 func TestDshProtocolAddressesAndKeyValidation(t *testing.T) {
 	dshTestHome(t)
 	keyID, groupID := seedDshGroup(t)
-	for _, api := range []string{"openai-completions", "openai-responses", "anthropic-messages"} {
+	for _, api := range []string{"openai-completions", "openai-responses", "anthropic-messages", "google-generative-ai"} {
 		prepared := dshTestPrepare(t, keyID, groupID, api)
 		doc, _ := parseDshYAML(prepared.Content, yaml.SequenceNode)
 		p := &dshProfile{patch: doc, base: &yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{{Kind: yaml.SequenceNode}}}}
 		provider, _ := p.provider(false)
 		expected := "http://127.0.0.1:18777"
-		if api != "anthropic-messages" {
+		switch api {
+		case "anthropic-messages":
+		case "google-generative-ai":
+			expected += "/v1beta"
+		default:
 			expected += "/v1"
 		}
 		if dshText(dshGet(provider, "baseURL")) != expected {
