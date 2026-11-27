@@ -493,6 +493,7 @@ func dshApplyRoutes(p *dshProfile, routes []dshResolvedRoute, defaultGroupID int
 				item = cloneDshNode(item)
 			}
 			dshEnsureModelInput(item)
+			dshEnsureReasoningEfforts(item)
 			models.Content = append(models.Content, item)
 			states = append(states, model.DshRouteState{
 				Provider:     definition.ID,
@@ -580,15 +581,10 @@ func dshReasoningEffort(defaults *yaml.Node) string {
 	return "default"
 }
 
-// 只为未声明推理能力的模型补齐 DSH 档位；已有映射及显式 false 均保留。
-func dshConfigureReasoning(item, defaults *yaml.Node, selected *string) (bool, error) {
-	if selected != nil {
-		switch *selected {
-		case "default", "off", "low", "high", "max":
-		default:
-			return false, fmt.Errorf("DSH 推理等级必须为 Default、Off、Low、High 或 Max")
-		}
-	}
+// dshEnsureReasoningEfforts 为未声明推理能力的模型补齐 DSH 档位；已有映射
+// 及显式 false 均保留。多路由下每个模型都需要这份声明，否则 DSH 模型
+// 选择器不会显示该模型的推理等级。
+func dshEnsureReasoningEfforts(item *yaml.Node) {
 	if efforts := dshGet(item, "reasoningEfforts"); efforts == nil || efforts.Tag == "!!null" {
 		efforts := dshMap()
 		// DSH 用空的 off 映射表示不发送 reasoning_effort，Default 则不写默认等级。
@@ -598,6 +594,18 @@ func dshConfigureReasoning(item, defaults *yaml.Node, selected *string) (bool, e
 		}
 		dshSet(item, "reasoningEfforts", efforts)
 	}
+}
+
+// 只为未声明推理能力的默认模型补齐 DSH 档位；已有映射及显式 false 均保留。
+func dshConfigureReasoning(item, defaults *yaml.Node, selected *string) (bool, error) {
+	if selected != nil {
+		switch *selected {
+		case "default", "off", "low", "high", "max":
+		default:
+			return false, fmt.Errorf("DSH 推理等级必须为 Default、Off、Low、High 或 Max")
+		}
+	}
+	dshEnsureReasoningEfforts(item)
 	if selected != nil {
 		if *selected == "default" {
 			dshRemove(defaults, "reasoningEffort")

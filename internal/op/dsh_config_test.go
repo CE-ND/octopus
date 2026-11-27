@@ -265,6 +265,20 @@ func TestDshMultiProtocolRoutes(t *testing.T) {
 		if dshText(dshGet(provider, "api")) != definition.API || dshText(dshGet(provider, "baseURL")) != dshBaseURLForAPI(definition.API) {
 			t.Fatalf("provider %s has wrong api/baseURL", definition.ID)
 		}
+		modelName := "public-group-alias"
+		if definition.API == "anthropic-messages" {
+			modelName = anthropicGroup.Name
+		}
+		item, err := dshModel(provider, modelName)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if item == nil {
+			t.Fatalf("provider %s missing model %s", definition.ID, modelName)
+		}
+		if efforts := dshGet(item, "reasoningEfforts"); efforts == nil || dshText(dshGet(efforts, "low")) != "low" || dshText(dshGet(efforts, "high")) != "high" || dshText(dshGet(efforts, "max")) != "max" {
+			t.Fatalf("provider %s model %s missing reasoning efforts", definition.ID, modelName)
+		}
 	}
 	defaults, err := p.config("agent-default-model", false)
 	if err != nil {
