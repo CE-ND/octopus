@@ -30,7 +30,7 @@ func TestDshReasoningLevelsPrepareSaveAndReload(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				provider, _ := p.provider(false)
+				provider, _ := p.defaultProviderNode()
 				item, _ := dshModel(provider, prepared.DSH.ModelName)
 				efforts := dshGet(item, "reasoningEfforts")
 				if off := dshGet(efforts, "off"); off == nil || off.Tag != "!!null" {
@@ -87,7 +87,7 @@ func TestDshReasoningPreservesCustomMappingsAndProviderDefault(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		provider, _ := p.provider(false)
+		provider, _ := p.defaultProviderNode()
 		item, _ := dshModel(provider, prepared.DSH.ModelName)
 		if dshText(dshGet(provider, "reasoning")) != "high" || dshGet(item, "contextWindow").Value != "200000" {
 			t.Fatal("provider default or existing model metadata was changed")
@@ -132,7 +132,7 @@ func TestDshReasoningPreservesExplicitRestrictions(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			provider, _ := p.provider(false)
+			provider, _ := p.defaultProviderNode()
 			item, _ := dshModel(provider, prepared.DSH.ModelName)
 			efforts := dshGet(item, "reasoningEfforts")
 			if disabled {

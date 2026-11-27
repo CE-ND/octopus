@@ -26,6 +26,18 @@ export interface AgentConfigListResponse {
 export type DshAPI = 'openai-completions' | 'openai-responses' | 'anthropic-messages' | 'google-generative-ai';
 export type DshReasoningEffort = 'default' | 'off' | 'low' | 'high' | 'max';
 
+export interface DshRouteSelection {
+    model_group_id: number;
+    api: DshAPI;
+}
+
+export interface DshRouteState {
+    provider: string;
+    api: DshAPI;
+    model_name: string;
+    model_group_id?: number;
+}
+
 export interface DshConfigState {
     profile: string;
     api: string;
@@ -35,6 +47,8 @@ export interface DshConfigState {
     credential_revision: string;
     current_provider: string;
     current_model: string;
+    default_model_group_id?: number;
+    routes?: DshRouteState[];
     reasoning_effort: string;
 }
 
@@ -45,6 +59,8 @@ export interface DshPreparedConfig {
     model_group_id: number;
     model_name: string;
     api: DshAPI;
+    default_model_group_id?: number;
+    routes?: DshRouteState[];
     reasoning_effort: string;
     reasoning_reset: boolean;
 }
@@ -53,6 +69,8 @@ export interface DshCredentialSave {
     profile: string;
     api_key_id?: number;
     model_group_id?: number;
+    routes?: DshRouteSelection[];
+    default_model_group_id?: number;
     credential_revision?: string;
 }
 
@@ -95,7 +113,7 @@ export interface AgentAutoConfigInput {
     current_content?: string;
     /** 多文件 agent 的编辑器草稿，按文件 key 索引（Gemini CLI: env / settings）。 */
     current_contents?: Record<string, string>;
-    dsh?: { profile: string; model_group_id: number; api?: DshAPI; reasoning_effort?: DshReasoningEffort };
+    dsh?: { profile: string; routes: DshRouteSelection[]; default_model_group_id: number; reasoning_effort?: DshReasoningEffort };
 }
 
 /** GET /api/v1/agent-config/list?agent=xxx */

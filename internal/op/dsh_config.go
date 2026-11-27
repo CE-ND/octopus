@@ -158,23 +158,96 @@ func (p *dshProfile) config(id string, create bool) (*yaml.Node, error) {
 	return dshChildMap(entry, "config")
 }
 
-func (p *dshProfile) provider(create bool) (*yaml.Node, error) {
+func (p *dshProfile) providers(create bool) (*yaml.Node, error) {
 	config, err := p.config("llm-pi-ai", create)
 	if err != nil || config == nil {
 		return nil, err
 	}
-	if !create {
-		return dshGet(dshGet(config, "providers"), "octopus"), nil
+	providers := dshGet(config, "providers")
+	if providers == nil {
+		if !create {
+			return nil, nil
+		}
+		providers = dshMap()
+		dshSet(config, "providers", providers)
 	}
-	providers, err := dshChildMap(config, "providers")
-	if err != nil {
+	if providers.Kind != yaml.MappingNode {
+		return nil, dshYAMLError(providers)
+	}
+	return providers, nil
+}
+
+func (p *dshProfile) providerByID(id string, create bool) (*yaml.Node, error) {
+	providers, err := p.providers(create)
+	if err != nil || providers == nil {
 		return nil, err
 	}
-	return dshChildMap(providers, "octopus")
+	if !create {
+		return dshGet(providers, id), nil
+	}
+	return dshChildMap(providers, id)
+}
+
+// provider 保留旧路径，供兼容读取单一 octopus provider 使用。
+func (p *dshProfile) provider(create bool) (*yaml.Node, error) {
+	return p.providerByID("octopus", create)
+}
+
+func (p *dshProfile) defaultProviderNode() (*yaml.Node, error) {
+	defaults, err := p.config("agent-default-model", false)
+	if err != nil || defaults == nil {
+		return nil, err
+	}
+	return p.providerByID(dshText(dshGet(defaults, "provider")), false)
 }
 
 func dshValidAPI(api string) bool {
 	return api == "openai-completions" || api == "openai-responses" || api == "anthropic-messages" || api == "google-generative-ai"
+}
+
+type dshProviderDefinition struct {
+	ID          string
+	DisplayName string
+	API         string
+	BaseSuffix  string
+}
+
+// DSH 的 provider api 不能按模型覆盖，因此每个协议固定映射到独立 provider。
+var dshProviderDefinitions = []dshProviderDefinition{
+	{ID: "octopus-chat", DisplayName: "Octopus Chat", API: "openai-completions", BaseSuffix: "/v1"},
+	{ID: "octopus-responses", DisplayName: "Octopus Responses", API: "openai-responses", BaseSuffix: "/v1"},
+	{ID: "octopus-anthropic", DisplayName: "Octopus Anthropic", API: "anthropic-messages", BaseSuffix: ""},
+	{ID: "octopus-gemini", DisplayName: "Octopus Gemini", API: "google-generative-ai", BaseSuffix: "/v1beta"},
+}
+
+var dshManagedProviderIDs = map[string]struct{}{
+	"octopus":           {},
+	"octopus-chat":      {},
+	"octopus-responses": {},
+	"octopus-anthropic": {},
+	"octopus-gemini":    {},
+}
+
+func dshProviderDefinitionForAPI(api string) (dshProviderDefinition, bool) {
+	for _, definition := range dshProviderDefinitions {
+		if definition.API == api {
+			return definition, true
+		}
+	}
+	return dshProviderDefinition{}, false
+}
+
+func dshBaseURLForAPI(api string) string {
+	definition, ok := dshProviderDefinitionForAPI(api)
+	if !ok {
+		return gatewayBaseURL() + "/v1"
+	}
+	return gatewayBaseURL() + definition.BaseSuffix
+}
+
+func dshManagedProvider(id string) bool {
+	_, ok := dshManagedProviderIDs[id]
+	return ok
 }
 
 func dshModels(provider *yaml.Node) (*yaml.Node, error) {
@@ -207,6 +280,289 @@ func dshModel(provider *yaml.Node, modelName string) (*yaml.Node, error) {
 		}
 	}
 	return nil, nil
+}
+
+func dshEnsureModelInput(item *yaml.Node) {
+	if input := dshGet(item, "input"); input == nil || input.Tag == "!!null" {
+		dshSet(item, "input", &yaml.Node{
+			Kind:    yaml.SequenceNode,
+			Tag:     "!!seq",
+			Style:   yaml.FlowStyle,
+			Content: []*yaml.Node{dshString("text"), dshString("image")},
+		})
+	}
+}
+
+type dshResolvedRoute struct {
+	Selection  model.DshRouteSelection
+	Definition dshProviderDefinition
+	ModelName  string
+}
+
+func dshLoadKey(id int, ctx context.Context) (model.APIKey, error) {
+	key, err := APIKeyGet(id, ctx)
+	if err != nil || !key.Enabled || (key.ExpireAt > 0 && key.ExpireAt < time.Now().Unix()) || strings.TrimSpace(key.APIKey) == "" {
+		return key, fmt.Errorf("请选择有效且启用的章鱼 API 密钥")
+	}
+	return key, nil
+}
+
+func dshResolveRoutes(key model.APIKey, selections []model.DshRouteSelection, defaultGroupID int, ctx context.Context) ([]dshResolvedRoute, int, error) {
+	if len(selections) == 0 {
+		return nil, 0, fmt.Errorf("请至少配置一个 DSH 模型路由")
+	}
+	seen := make(map[int]struct{}, len(selections))
+	routes := make([]dshResolvedRoute, 0, len(selections))
+	for _, selection := range selections {
+		if selection.ModelGroupID <= 0 {
+			return nil, 0, fmt.Errorf("DSH 模型分组不能为空")
+		}
+		if _, exists := seen[selection.ModelGroupID]; exists {
+			return nil, 0, fmt.Errorf("同一个模型分组不能重复配置 DSH 路由")
+		}
+		definition, ok := dshProviderDefinitionForAPI(selection.API)
+		if !ok {
+			return nil, 0, fmt.Errorf("DSH 暂不支持所选 API 协议")
+		}
+		modelName, err := agentModelGroupName(selection.ModelGroupID, key.SupportedModels, ctx)
+		if err != nil {
+			return nil, 0, err
+		}
+		seen[selection.ModelGroupID] = struct{}{}
+		routes = append(routes, dshResolvedRoute{Selection: selection, Definition: definition, ModelName: modelName})
+	}
+	if defaultGroupID == 0 {
+		defaultGroupID = routes[0].Selection.ModelGroupID
+	}
+	for _, route := range routes {
+		if route.Selection.ModelGroupID == defaultGroupID {
+			return routes, defaultGroupID, nil
+		}
+	}
+	return nil, 0, fmt.Errorf("DSH 默认模型必须在模型路由中")
+}
+
+func dshSelectionsFromOptions(opts model.DshAutoConfigOptions, p *dshProfile) ([]model.DshRouteSelection, int, error) {
+	if len(opts.Routes) > 0 {
+		selections := make([]model.DshRouteSelection, len(opts.Routes))
+		copy(selections, opts.Routes)
+		defaultGroupID := opts.DefaultModelGroupID
+		if defaultGroupID == 0 {
+			defaultGroupID = selections[0].ModelGroupID
+		}
+		return selections, defaultGroupID, nil
+	}
+	if opts.ModelGroupID <= 0 {
+		return nil, 0, fmt.Errorf("请选择 DSH 的默认模型分组")
+	}
+	api := opts.API
+	if api == "" {
+		if provider, err := p.provider(false); err == nil {
+			api = dshText(dshGet(provider, "api"))
+		}
+	}
+	if api == "" {
+		if defaults, err := p.config("agent-default-model", false); err == nil {
+			if provider, err := p.providerByID(dshText(dshGet(defaults, "provider")), false); err == nil {
+				api = dshText(dshGet(provider, "api"))
+			}
+		}
+	}
+	if api == "" {
+		api = "openai-completions"
+	}
+	defaultGroupID := opts.DefaultModelGroupID
+	if defaultGroupID == 0 {
+		defaultGroupID = opts.ModelGroupID
+	}
+	return []model.DshRouteSelection{{ModelGroupID: opts.ModelGroupID, API: api}}, defaultGroupID, nil
+}
+
+// dshApplyRoutes 重建所有 Octopus 管理的 provider。非 Octopus provider 原样保留。
+func dshApplyRoutes(p *dshProfile, routes []dshResolvedRoute, defaultGroupID int, knownGroupNames map[string]struct{}) ([]model.DshRouteState, error) {
+	providers, err := p.providers(true)
+	if err != nil {
+		return nil, err
+	}
+	existingModels := make(map[string]*yaml.Node)
+	existingProviders := make(map[string]*yaml.Node)
+	for i := 0; i < len(providers.Content); i += 2 {
+		id := providers.Content[i].Value
+		node := providers.Content[i+1]
+		if !dshManagedProvider(id) && dshText(dshGet(node, "apiKeyEnv")) != dshManagedReference {
+			continue
+		}
+		existingProviders[id] = node
+		models, err := dshModels(node)
+		if err != nil {
+			return nil, err
+		}
+		if models == nil {
+			continue
+		}
+		for _, item := range models.Content {
+			name := dshText(dshGet(item, "id"))
+			if name == "" {
+				continue
+			}
+			if _, exists := existingModels[name]; !exists {
+				existingModels[name] = cloneDshNode(item)
+			}
+		}
+	}
+	for id := range existingProviders {
+		dshRemove(providers, id)
+	}
+
+	byAPI := make(map[string][]dshResolvedRoute)
+	selectedModels := make(map[string]struct{}, len(routes))
+	for _, route := range routes {
+		byAPI[route.Definition.API] = append(byAPI[route.Definition.API], route)
+		selectedModels[route.ModelName] = struct{}{}
+	}
+	preservedByAPI := make(map[string][]string)
+	preservedSeen := make(map[string]map[string]struct{})
+	for _, old := range existingProviders {
+		definition, ok := dshProviderDefinitionForAPI(dshText(dshGet(old, "api")))
+		if !ok {
+			continue
+		}
+		models, err := dshModels(old)
+		if err != nil {
+			return nil, err
+		}
+		if models == nil {
+			continue
+		}
+		for _, item := range models.Content {
+			name := dshText(dshGet(item, "id"))
+			if name == "" {
+				continue
+			}
+			if _, selected := selectedModels[name]; selected {
+				continue
+			}
+			// 已从路由中移除的 Octopus 分组不再保留；未知模型视为用户手工
+			// 添加的模型，仍原样保留，避免自动配置删除用户数据。
+			if _, known := knownGroupNames[name]; known {
+				continue
+			}
+			if preservedSeen[definition.API] == nil {
+				preservedSeen[definition.API] = make(map[string]struct{})
+			}
+			if _, seen := preservedSeen[definition.API][name]; seen {
+				continue
+			}
+			preservedSeen[definition.API][name] = struct{}{}
+			preservedByAPI[definition.API] = append(preservedByAPI[definition.API], name)
+		}
+	}
+
+	states := make([]model.DshRouteState, 0, len(routes))
+	for _, definition := range dshProviderDefinitions {
+		group := byAPI[definition.API]
+		if len(group) == 0 && len(preservedByAPI[definition.API]) == 0 {
+			continue
+		}
+		var providerNode *yaml.Node
+		if existing, ok := existingProviders[definition.ID]; ok {
+			providerNode = cloneDshNode(existing)
+		} else {
+			for _, old := range existingProviders {
+				if oldDefinition, ok := dshProviderDefinitionForAPI(dshText(dshGet(old, "api"))); ok && oldDefinition.API == definition.API {
+					providerNode = cloneDshNode(old)
+					break
+				}
+			}
+		}
+		if providerNode == nil {
+			providerNode = dshMap()
+		}
+		dshSet(providerNode, "api", dshString(definition.API))
+		dshSet(providerNode, "baseURL", dshString(dshBaseURLForAPI(definition.API)))
+		dshSet(providerNode, "apiKeyEnv", dshString(dshManagedReference))
+		dshSet(providerNode, "displayName", dshString(definition.DisplayName))
+		models := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
+		for _, route := range group {
+			item := existingModels[route.ModelName]
+			if item == nil {
+				item = dshMap()
+				dshSet(item, "id", dshString(route.ModelName))
+				dshSet(item, "name", dshString(route.ModelName))
+			} else {
+				item = cloneDshNode(item)
+			}
+			dshEnsureModelInput(item)
+			models.Content = append(models.Content, item)
+			states = append(states, model.DshRouteState{
+				Provider:     definition.ID,
+				API:          definition.API,
+				ModelName:    route.ModelName,
+				ModelGroupID: route.Selection.ModelGroupID,
+			})
+		}
+		for _, name := range preservedByAPI[definition.API] {
+			item := existingModels[name]
+			if item == nil {
+				continue
+			}
+			item = cloneDshNode(item)
+			dshEnsureModelInput(item)
+			models.Content = append(models.Content, item)
+		}
+		dshSet(providerNode, "models", models)
+		dshSet(providers, definition.ID, providerNode)
+	}
+
+	var defaultRoute *dshResolvedRoute
+	for i := range routes {
+		if routes[i].Selection.ModelGroupID == defaultGroupID {
+			defaultRoute = &routes[i]
+			break
+		}
+	}
+	if defaultRoute == nil {
+		return nil, fmt.Errorf("DSH 默认模型必须在模型路由中")
+	}
+	defaults, err := p.config("agent-default-model", true)
+	if err != nil {
+		return nil, err
+	}
+	dshSet(defaults, "provider", dshString(defaultRoute.Definition.ID))
+	dshSet(defaults, "model", dshString(defaultRoute.ModelName))
+	return states, nil
+}
+
+func dshRouteStates(p *dshProfile, groups []model.Group) ([]model.DshRouteState, error) {
+	providers, err := p.providers(false)
+	if err != nil || providers == nil {
+		return nil, err
+	}
+	groupIDs := make(map[string]int, len(groups))
+	for _, group := range groups {
+		groupIDs[group.Name] = group.ID
+	}
+	states := []model.DshRouteState{}
+	for i := 0; i < len(providers.Content); i += 2 {
+		id := providers.Content[i].Value
+		provider := providers.Content[i+1]
+		if !dshManagedProvider(id) && dshText(dshGet(provider, "apiKeyEnv")) != dshManagedReference {
+			continue
+		}
+		api := dshText(dshGet(provider, "api"))
+		models, err := dshModels(provider)
+		if err != nil {
+			return nil, err
+		}
+		if models == nil {
+			continue
+		}
+		for _, item := range models.Content {
+			name := dshText(dshGet(item, "id"))
+			states = append(states, model.DshRouteState{Provider: id, API: api, ModelName: name, ModelGroupID: groupIDs[name]})
+		}
+	}
+	return states, nil
 }
 
 func dshSupportsEffort(model *yaml.Node, effort string) bool {
@@ -265,34 +621,44 @@ func validateDshOctopus(p *dshProfile) error {
 	if err != nil {
 		return err
 	}
-	provider, err := p.provider(false)
+	providers, err := p.providers(false)
 	if err != nil {
 		return err
 	}
-	if provider == nil && dshText(dshGet(defaults, "provider")) == "octopus" {
-		return fmt.Errorf("DSH 默认提供商 Octopus 尚未配置")
+	defaultProviderID := dshText(dshGet(defaults, "provider"))
+	managedProviders := map[string]*yaml.Node{}
+	if providers != nil {
+		for i := 0; i < len(providers.Content); i += 2 {
+			id := providers.Content[i].Value
+			provider := providers.Content[i+1]
+			if !dshManagedProvider(id) && dshText(dshGet(provider, "apiKeyEnv")) != dshManagedReference {
+				continue
+			}
+			managedProviders[id] = provider
+			if provider.Kind != yaml.MappingNode {
+				return dshYAMLError(provider)
+			}
+			if !dshValidAPI(dshText(dshGet(provider, "api"))) || dshText(dshGet(provider, "baseURL")) == "" || !dshReferencePattern.MatchString(dshText(dshGet(provider, "apiKeyEnv"))) {
+				return fmt.Errorf("DSH Octopus 提供商需要有效的协议、地址及凭据引用")
+			}
+			endpoint, err := url.Parse(dshText(dshGet(provider, "baseURL")))
+			if err != nil || endpoint.Host == "" || (endpoint.Scheme != "http" && endpoint.Scheme != "https") || endpoint.User != nil {
+				return fmt.Errorf("DSH Octopus 需要有效的 HTTP API 地址")
+			}
+			models, err := dshModels(provider)
+			if err != nil {
+				return err
+			}
+			if models == nil || len(models.Content) == 0 {
+				return fmt.Errorf("DSH Octopus 模型目录不能为空")
+			}
+		}
 	}
-	if provider == nil {
-		return err
-	}
-	if provider.Kind != yaml.MappingNode {
-		return dshYAMLError(provider)
-	}
-	if !dshValidAPI(dshText(dshGet(provider, "api"))) || dshText(dshGet(provider, "baseURL")) == "" || !dshReferencePattern.MatchString(dshText(dshGet(provider, "apiKeyEnv"))) {
-		return fmt.Errorf("DSH Octopus 提供商需要有效的协议、地址及凭据引用")
-	}
-	endpoint, err := url.Parse(dshText(dshGet(provider, "baseURL")))
-	if err != nil || endpoint.Host == "" || (endpoint.Scheme != "http" && endpoint.Scheme != "https") || endpoint.User != nil {
-		return fmt.Errorf("DSH Octopus 需要有效的 HTTP API 地址")
-	}
-	models, err := dshModels(provider)
-	if err != nil {
-		return err
-	}
-	if models == nil || len(models.Content) == 0 {
-		return fmt.Errorf("DSH Octopus 模型目录不能为空")
-	}
-	if dshText(dshGet(defaults, "provider")) == "octopus" {
+	if dshManagedProvider(defaultProviderID) {
+		provider := managedProviders[defaultProviderID]
+		if provider == nil {
+			return fmt.Errorf("DSH 默认提供商 Octopus 尚未配置")
+		}
 		item, err := dshModel(provider, dshText(dshGet(defaults, "model")))
 		if err != nil {
 			return err
@@ -341,7 +707,8 @@ func DshConfigList(profile string, ctx context.Context) ([]AgentConfigFileView, 
 	if err != nil {
 		return nil, nil, err
 	}
-	provider, err := p.provider(false)
+	groups, _ := GroupList(ctx)
+	routes, err := dshRouteStates(p, groups)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -349,12 +716,47 @@ func DshConfigList(profile string, ctx context.Context) ([]AgentConfigFileView, 
 	if err != nil {
 		return nil, nil, err
 	}
-	ref := dshText(dshGet(provider, "apiKeyEnv"))
-	api := dshText(dshGet(provider, "api"))
+	providers, err := p.providers(false)
+	if err != nil {
+		return nil, nil, err
+	}
+	currentProvider := dshText(dshGet(defaults, "provider"))
+	currentModel := dshText(dshGet(defaults, "model"))
+	var selectedProvider *yaml.Node
+	if providers != nil {
+		if dshManagedProvider(currentProvider) {
+			selectedProvider = dshGet(providers, currentProvider)
+		}
+		if selectedProvider == nil {
+			for i := 0; i < len(providers.Content); i += 2 {
+				id := providers.Content[i].Value
+				candidate := providers.Content[i+1]
+				if dshManagedProvider(id) || dshText(dshGet(candidate, "apiKeyEnv")) == dshManagedReference {
+					selectedProvider = candidate
+					break
+				}
+			}
+		}
+	}
+	ref := dshText(dshGet(selectedProvider, "apiKeyEnv"))
+	api := dshText(dshGet(selectedProvider, "api"))
 	if api == "" {
 		api = "openai-completions"
 	}
-	state := &model.DshConfigState{Profile: "desktop", API: api, CredentialReference: ref, CredentialRevision: dshCredentialRevision(credentials), CurrentProvider: dshText(dshGet(defaults, "provider")), CurrentModel: dshText(dshGet(defaults, "model"))}
+	groupIDs := make(map[string]int, len(groups))
+	for _, group := range groups {
+		groupIDs[group.Name] = group.ID
+	}
+	state := &model.DshConfigState{
+		Profile:             "desktop",
+		API:                 api,
+		CredentialReference: ref,
+		CredentialRevision:  dshCredentialRevision(credentials),
+		CurrentProvider:     currentProvider,
+		CurrentModel:        currentModel,
+		DefaultModelGroupID: groupIDs[currentModel],
+		Routes:              routes,
+	}
 	state.ReasoningEffort = dshReasoningEffort(defaults)
 	value := dshCredentialValue(credentials, ref)
 	state.CredentialConfigured = value != ""
@@ -367,26 +769,79 @@ func DshConfigList(profile string, ctx context.Context) ([]AgentConfigFileView, 
 	return []AgentConfigFileView{view}, state, nil
 }
 
-func dshSelectedKey(id, groupID int, ctx context.Context) (model.APIKey, string, error) {
-	key, err := APIKeyGet(id, ctx)
-	if err != nil || !key.Enabled || (key.ExpireAt > 0 && key.ExpireAt < time.Now().Unix()) || strings.TrimSpace(key.APIKey) == "" {
-		return key, "", fmt.Errorf("请选择有效且启用的章鱼 API 密钥")
+func dshValidateSaveRoutes(p *dshProfile, opts model.DshConfigSaveOptions, key model.APIKey, ctx context.Context) error {
+	providers, err := p.providers(false)
+	if err != nil {
+		return err
 	}
-	if groupID <= 0 {
-		return key, "", fmt.Errorf("请选择 DSH 的默认模型分组")
+	if providers != nil {
+		for i := 0; i < len(providers.Content); i += 2 {
+			id := providers.Content[i].Value
+			provider := providers.Content[i+1]
+			if !dshManagedProvider(id) && dshText(dshGet(provider, "apiKeyEnv")) != dshManagedReference {
+				continue
+			}
+			if dshText(dshGet(provider, "apiKeyEnv")) != dshManagedReference {
+				return fmt.Errorf("DSH 凭据引用已改变，请重新生成快速配置")
+			}
+		}
 	}
-	name, err := agentModelGroupName(groupID, key.SupportedModels, ctx)
-	return key, name, err
+	selections := opts.Routes
+	if len(selections) == 0 && opts.ModelGroupID > 0 {
+		selections = []model.DshRouteSelection{{ModelGroupID: opts.ModelGroupID}}
+	}
+	for _, selection := range selections {
+		name, err := agentModelGroupName(selection.ModelGroupID, key.SupportedModels, ctx)
+		if err != nil {
+			return err
+		}
+		if selection.API != "" {
+			definition, ok := dshProviderDefinitionForAPI(selection.API)
+			if !ok {
+				return fmt.Errorf("DSH 暂不支持所选 API 协议")
+			}
+			provider, err := p.providerByID(definition.ID, false)
+			if err != nil {
+				return err
+			}
+			item, err := dshModel(provider, name)
+			if err != nil {
+				return err
+			}
+			if item == nil {
+				return fmt.Errorf("所选分组已改变，请重新生成 DSH 配置")
+			}
+			continue
+		}
+		found := false
+		if providers != nil {
+			for i := 0; i < len(providers.Content); i += 2 {
+				id := providers.Content[i].Value
+				provider := providers.Content[i+1]
+				if !dshManagedProvider(id) && dshText(dshGet(provider, "apiKeyEnv")) != dshManagedReference {
+					continue
+				}
+				item, err := dshModel(provider, name)
+				if err != nil {
+					return err
+				}
+				if item != nil {
+					found = true
+					break
+				}
+			}
+		}
+		if !found {
+			return fmt.Errorf("所选分组已改变，请重新生成 DSH 配置")
+		}
+	}
+	return nil
 }
 
 func DshAutoConfigPrepare(req model.AgentAutoConfigRequest, ctx context.Context) (model.AgentAutoConfigResponse, error) {
 	result := model.AgentAutoConfigResponse{}
 	if req.Agent != dshAgentID || req.DSH == nil || req.ModelGroups != nil || req.CodexModelGroupID != 0 {
 		return result, fmt.Errorf("无效的 DSH 自动配置参数")
-	}
-	_, name, err := dshSelectedKey(req.APIKeyID, req.DSH.ModelGroupID, ctx)
-	if err != nil {
-		return result, err
 	}
 	paths, err := resolveDshPaths(req.DSH.Profile)
 	if err != nil {
@@ -396,78 +851,56 @@ func DshAutoConfigPrepare(req model.AgentAutoConfigRequest, ctx context.Context)
 	if err != nil {
 		return result, err
 	}
-	credentials, _, err := readDshCredentials(paths)
+	selections, defaultGroupID, err := dshSelectionsFromOptions(*req.DSH, p)
 	if err != nil {
 		return result, err
 	}
-	provider, err := p.provider(true)
+	key, err := dshLoadKey(req.APIKeyID, ctx)
 	if err != nil {
 		return result, err
 	}
-	api := req.DSH.API
-	if api == "" {
-		api = dshText(dshGet(provider, "api"))
-	}
-	if api == "" {
-		api = "openai-completions"
-	}
-	if !dshValidAPI(api) {
-		return result, fmt.Errorf("DSH 暂不支持所选 API 协议")
-	}
-	baseURL := gatewayBaseURL()
-	switch api {
-	case "anthropic-messages":
-		// DSH 的 Anthropic Messages 适配器自行拼接 /v1/messages。
-	case "google-generative-ai":
-		// Gemini 原生端点使用 /v1beta，DSH 的 google-generative-ai API
-		// 要求 baseURL 已经包含 API 版本路径。
-		baseURL += "/v1beta"
-	default:
-		baseURL += "/v1"
-	}
-	dshSet(provider, "api", dshString(api))
-	dshSet(provider, "baseURL", dshString(baseURL))
-	dshSet(provider, "apiKeyEnv", dshString(dshManagedReference))
-	if dshGet(provider, "displayName") == nil {
-		dshSet(provider, "displayName", dshString("Octopus"))
-	}
-	models, err := dshModels(provider)
+	routes, defaultGroupID, err := dshResolveRoutes(key, selections, defaultGroupID, ctx)
 	if err != nil {
 		return result, err
 	}
-	if models == nil {
-		models = &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
-		dshSet(provider, "models", models)
+	groups, _ := GroupList(ctx)
+	knownGroupNames := make(map[string]struct{}, len(groups))
+	for _, group := range groups {
+		knownGroupNames[group.Name] = struct{}{}
 	}
-	item, err := dshModel(provider, name)
+	states, err := dshApplyRoutes(p, routes, defaultGroupID, knownGroupNames)
 	if err != nil {
 		return result, err
-	}
-	if item == nil {
-		item = dshMap()
-		dshSet(item, "id", dshString(name))
-		dshSet(item, "name", dshString(name))
-		models.Content = append(models.Content, item)
-	}
-	// DSH 根据 input 启用图片输入；补齐旧配置的缺省值，同时保留手动声明的能力。
-	if input := dshGet(item, "input"); input == nil || input.Tag == "!!null" {
-		dshSet(item, "input", &yaml.Node{
-			Kind:    yaml.SequenceNode,
-			Tag:     "!!seq",
-			Style:   yaml.FlowStyle,
-			Content: []*yaml.Node{dshString("text"), dshString("image")},
-		})
 	}
 	defaults, err := p.config("agent-default-model", true)
 	if err != nil {
 		return result, err
 	}
+	var defaultRoute *dshResolvedRoute
+	for i := range routes {
+		if routes[i].Selection.ModelGroupID == defaultGroupID {
+			defaultRoute = &routes[i]
+			break
+		}
+	}
+	if defaultRoute == nil {
+		return result, fmt.Errorf("DSH 默认模型必须在模型路由中")
+	}
+	provider, err := p.providerByID(defaultRoute.Definition.ID, false)
+	if err != nil {
+		return result, err
+	}
+	item, err := dshModel(provider, defaultRoute.ModelName)
+	if err != nil {
+		return result, err
+	}
+	if item == nil {
+		return result, fmt.Errorf("DSH 默认模型不在 Octopus 模型目录中")
+	}
 	reasoningReset, err := dshConfigureReasoning(item, defaults, req.DSH.ReasoningEffort)
 	if err != nil {
 		return result, err
 	}
-	dshSet(defaults, "provider", dshString("octopus"))
-	dshSet(defaults, "model", dshString(name))
 	if err := validateDshOctopus(p); err != nil {
 		return result, err
 	}
@@ -475,8 +908,23 @@ func DshAutoConfigPrepare(req model.AgentAutoConfigRequest, ctx context.Context)
 	if err != nil {
 		return result, err
 	}
+	credentials, _, err := readDshCredentials(paths)
+	if err != nil {
+		return result, err
+	}
 	result.FileKey, result.Content = "profile", content
-	result.DSH = &model.DshPreparedConfig{Profile: "desktop", CredentialReference: dshManagedReference, CredentialRevision: dshCredentialRevision(credentials), ModelGroupID: req.DSH.ModelGroupID, ModelName: name, API: api, ReasoningEffort: dshReasoningEffort(defaults), ReasoningReset: reasoningReset}
+	result.DSH = &model.DshPreparedConfig{
+		Profile:             "desktop",
+		CredentialReference: dshManagedReference,
+		CredentialRevision:  dshCredentialRevision(credentials),
+		ModelGroupID:        defaultGroupID,
+		ModelName:           defaultRoute.ModelName,
+		API:                 defaultRoute.Definition.API,
+		DefaultModelGroupID: defaultGroupID,
+		Routes:              states,
+		ReasoningEffort:     dshReasoningEffort(defaults),
+		ReasoningReset:      reasoningReset,
+	}
 	return result, nil
 }
 
@@ -514,23 +962,12 @@ func saveDshConfig(req model.AgentConfigSaveRequest, ctx context.Context, writer
 		}
 		updates := []dshFileUpdate{}
 		if req.DSH != nil && req.DSH.APIKeyID != 0 {
-			key, modelName, err := dshSelectedKey(req.DSH.APIKeyID, req.DSH.ModelGroupID, ctx)
+			key, err := dshLoadKey(req.DSH.APIKeyID, ctx)
 			if err != nil {
 				return err
 			}
-			provider, err := p.provider(false)
-			if err != nil {
+			if err := dshValidateSaveRoutes(p, *req.DSH, key, ctx); err != nil {
 				return err
-			}
-			if dshText(dshGet(provider, "apiKeyEnv")) != dshManagedReference {
-				return fmt.Errorf("DSH 凭据引用已改变，请重新生成快速配置")
-			}
-			selected, err := dshModel(provider, modelName)
-			if err != nil {
-				return err
-			}
-			if selected == nil {
-				return fmt.Errorf("所选分组已改变，请重新生成 DSH 配置")
 			}
 			credentials, credentialFile, err := readDshCredentials(paths)
 			if err != nil {

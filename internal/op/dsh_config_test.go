@@ -147,7 +147,13 @@ func dshTestSaveRequest(t *testing.T, prepared model.AgentAutoConfigResponse, ke
 	if err != nil {
 		t.Fatal(err)
 	}
-	return model.AgentConfigSaveRequest{Agent: dshAgentID, Files: []model.AgentConfigSaveFile{{Key: "profile", Content: prepared.Content, BaseModifiedAt: files[0].ModifiedAt}}, DSH: &model.DshConfigSaveOptions{Profile: "desktop", APIKeyID: keyID, ModelGroupID: prepared.DSH.ModelGroupID, CredentialRevision: prepared.DSH.CredentialRevision}}
+	options := &model.DshConfigSaveOptions{Profile: "desktop", APIKeyID: keyID, ModelGroupID: prepared.DSH.ModelGroupID, DefaultModelGroupID: prepared.DSH.DefaultModelGroupID, CredentialRevision: prepared.DSH.CredentialRevision}
+	for _, route := range prepared.DSH.Routes {
+		if route.ModelGroupID > 0 {
+			options.Routes = append(options.Routes, model.DshRouteSelection{ModelGroupID: route.ModelGroupID, API: route.API})
+		}
+	}
+	return model.AgentConfigSaveRequest{Agent: dshAgentID, Files: []model.AgentConfigSaveFile{{Key: "profile", Content: prepared.Content, BaseModifiedAt: files[0].ModifiedAt}}, DSH: options}
 }
 
 func TestDshPrepareAndSavePreservesOtherProvidersAndCredentials(t *testing.T) {
@@ -209,13 +215,108 @@ func TestDshPrepareAndSavePreservesOtherProvidersAndCredentials(t *testing.T) {
 		}
 	}
 	_, state, err = DshConfigList("desktop", context.Background())
-	if err != nil || state.CurrentProvider != "octopus" || state.CurrentModel != "public-group-alias" || state.APIKeyID != keyID {
+	if err != nil || state.CurrentProvider != "octopus-responses" || state.CurrentModel != "public-group-alias" || state.APIKeyID != keyID {
 		t.Fatal("saved state not recognized")
 	}
 	for _, path := range []string{paths.profile, paths.credentials} {
 		if _, err := os.Stat(path + ".bak"); err != nil {
 			t.Fatal("backup missing")
 		}
+	}
+}
+
+func TestDshMultiProtocolRoutes(t *testing.T) {
+	dshTestHome(t)
+	keyID, groupID := seedDshGroup(t)
+	anthropicGroup := model.Group{Name: "claude-alias", Mode: model.GroupModeRoundRobin}
+	if err := GroupCreate(&anthropicGroup, context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := DshAutoConfigPrepare(model.AgentAutoConfigRequest{
+		Agent: dshAgentID, APIKeyID: keyID,
+		DSH: &model.DshAutoConfigOptions{
+			Profile: "desktop",
+			Routes: []model.DshRouteSelection{
+				{ModelGroupID: groupID, API: "openai-completions"},
+				{ModelGroupID: anthropicGroup.ID, API: "anthropic-messages"},
+			},
+			DefaultModelGroupID: anthropicGroup.ID,
+		},
+	}, context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, err := parseDshYAML(prepared.Content, yaml.SequenceNode)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := &dshProfile{patch: doc, base: &yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{{Kind: yaml.SequenceNode}}}}
+	providers, err := p.providers(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	chatProvider, _ := dshProviderDefinitionForAPI("openai-completions")
+	anthropicProvider, _ := dshProviderDefinitionForAPI("anthropic-messages")
+	for _, definition := range []dshProviderDefinition{chatProvider, anthropicProvider} {
+		provider := dshGet(providers, definition.ID)
+		if provider == nil {
+			t.Fatalf("missing provider %s", definition.ID)
+		}
+		if dshText(dshGet(provider, "api")) != definition.API || dshText(dshGet(provider, "baseURL")) != dshBaseURLForAPI(definition.API) {
+			t.Fatalf("provider %s has wrong api/baseURL", definition.ID)
+		}
+	}
+	defaults, err := p.config("agent-default-model", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := dshText(dshGet(defaults, "provider")); got != anthropicProvider.ID {
+		t.Fatalf("default provider = %q, want %q", got, anthropicProvider.ID)
+	}
+	if got := dshText(dshGet(defaults, "model")); got != anthropicGroup.Name {
+		t.Fatalf("default model = %q, want %q", got, anthropicGroup.Name)
+	}
+	files, _, err := DshConfigList("desktop", context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var selections []model.DshRouteSelection
+	for _, route := range prepared.DSH.Routes {
+		if route.ModelGroupID > 0 {
+			selections = append(selections, model.DshRouteSelection{ModelGroupID: route.ModelGroupID, API: route.API})
+		}
+	}
+	if err := DshConfigSave(model.AgentConfigSaveRequest{
+		Agent: dshAgentID,
+		Files: []model.AgentConfigSaveFile{{Key: "profile", Content: prepared.Content, BaseModifiedAt: files[0].ModifiedAt}},
+		DSH: &model.DshConfigSaveOptions{
+			Profile:             "desktop",
+			APIKeyID:            keyID,
+			Routes:              selections,
+			DefaultModelGroupID: anthropicGroup.ID,
+			CredentialRevision:  prepared.DSH.CredentialRevision,
+		},
+	}, context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	_, savedState, err := DshConfigList("desktop", context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if savedState.DefaultModelGroupID != anthropicGroup.ID || savedState.CurrentModel != anthropicGroup.Name {
+		t.Fatalf("saved multi-route state not recognized: %+v", savedState)
+	}
+	foundChat, foundAnthropic := false, false
+	for _, route := range savedState.Routes {
+		if route.ModelGroupID == groupID && route.API == "openai-completions" {
+			foundChat = true
+		}
+		if route.ModelGroupID == anthropicGroup.ID && route.API == "anthropic-messages" {
+			foundAnthropic = true
+		}
+	}
+	if !foundChat || !foundAnthropic {
+		t.Fatalf("saved routes lost a protocol: %+v", savedState.Routes)
 	}
 }
 
@@ -226,7 +327,7 @@ func TestDshProtocolAddressesAndKeyValidation(t *testing.T) {
 		prepared := dshTestPrepare(t, keyID, groupID, api)
 		doc, _ := parseDshYAML(prepared.Content, yaml.SequenceNode)
 		p := &dshProfile{patch: doc, base: &yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{{Kind: yaml.SequenceNode}}}}
-		provider, _ := p.provider(false)
+		provider, _ := p.defaultProviderNode()
 		expected := "http://127.0.0.1:18777"
 		switch api {
 		case "anthropic-messages":
@@ -299,7 +400,7 @@ func TestDshAutoConfigBackfillsModelInputAndPreservesExplicitCapabilities(t *tes
 			if err != nil {
 				t.Fatal(err)
 			}
-			provider, err := p.provider(false)
+			provider, err := p.defaultProviderNode()
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -474,8 +575,10 @@ func TestDshAutoConfigWithDuplicatePatchEntries(t *testing.T) {
 		t.Fatal(err)
 	}
 	providers := dshGet(llmConfig, "providers")
-	if dshGet(providers, "octopus") == nil {
-		t.Fatal("auto-config did not add the octopus provider")
+	responsesDefinition, _ := dshProviderDefinitionForAPI("openai-responses")
+	responsesProvider := responsesDefinition.ID
+	if dshGet(providers, responsesProvider) == nil {
+		t.Fatalf("auto-config did not add the %s provider", responsesProvider)
 	}
 	if dshGet(providers, "magpie") == nil {
 		t.Fatal("auto-config lost the existing magpie provider")
@@ -484,8 +587,8 @@ func TestDshAutoConfigWithDuplicatePatchEntries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := dshText(dshGet(defaults, "provider")); got != "octopus" {
-		t.Fatalf("default provider = %q, want octopus", got)
+	if got := dshText(dshGet(defaults, "provider")); got != responsesProvider {
+		t.Fatalf("default provider = %q, want %s", got, responsesProvider)
 	}
 	if got := dshText(dshGet(defaults, "model")); got != "public-group-alias" {
 		t.Fatalf("default model = %q, want public-group-alias", got)
